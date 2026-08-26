@@ -655,13 +655,15 @@ async function processMediaItemForSync(item) {
 
   // Case 1: item is a direct base64 string
   if (typeof item === 'string') {
-    if (item.startsWith('data:image')) {
-      const comp = await compressBase64Image(item);
-      if (comp.length > 500000) {
-        try { return await uploadToCloudinary(comp, 'image'); } catch(e) { return comp; }
+    if (item.startsWith('data:image') || item.startsWith('data:image/')) {
+      try {
+        const comp = await compressBase64Image(item);
+        return await uploadToCloudinary(comp, 'image');
+      } catch(e) {
+        console.warn('Cloudinary upload fallback to compressed base64:', e);
+        try { return await compressBase64Image(item); } catch(err2) { return item; }
       }
-      return comp;
-    } else if (item.startsWith('data:application/pdf') || item.startsWith('data:')) {
+    } else if (item.startsWith('data:application/pdf')) {
       try { return await uploadToCloudinary(item, 'raw'); } catch(e) { return item; }
     }
     return item;
@@ -675,19 +677,20 @@ async function processMediaItemForSync(item) {
     for (const k of mediaKeys) {
       const val = clone[k];
       if (typeof val === 'string' && val.startsWith('data:')) {
-        if (val.startsWith('data:image')) {
-          const comp = await compressBase64Image(val);
-          if (comp.length > 500000) {
-            try { clone[k] = await uploadToCloudinary(comp, 'image'); } catch(e) { clone[k] = comp; }
-          } else {
-            clone[k] = comp;
+        if (val.startsWith('data:image') || val.startsWith('data:image/')) {
+          try {
+            const comp = await compressBase64Image(val);
+            clone[k] = await uploadToCloudinary(comp, 'image');
+          } catch(e) {
+            console.warn(`Cloudinary upload for ${k} fallback:`, e);
+            try { clone[k] = await compressBase64Image(val); } catch(err2) {}
           }
-        } else if (val.startsWith('data:application/pdf') || val.length > 200000) {
-          // Upload PDF or large binary document to Cloudinary as raw resource
+        } else if (val.startsWith('data:application/pdf')) {
+          // Upload PDF to Cloudinary as raw resource
           try {
             clone[k] = await uploadToCloudinary(val, 'raw');
           } catch(e) {
-            console.warn(`Could not upload ${k} to Cloudinary, trying direct:`, e);
+            console.warn(`Could not upload PDF ${k} to Cloudinary:`, e);
           }
         }
       }
@@ -823,6 +826,9 @@ async function importBackup(e) {
           for (let mIdx = 0; mIdx < items.length; mIdx++) {
             let item = items[mIdx];
             item = await processMediaItemForSync(item);
+            if (DATA.patients && DATA.patients[i] && DATA.patients[i][field]) {
+              DATA.patients[i][field][mIdx] = item;
+            }
 
             try {
               const itemRes = await fetch('/api/save-data', {
@@ -2708,9 +2714,20 @@ async function cam_doCapture(){
   if(idx < 0){ alert('No active patient selected.'); return; }
   if(!DATA.patients[idx].images) DATA.patients[idx].images = [];
 
+  var imgSrc = rawDataURL;
+  try {
+    showLoading('Uploading photo to Cloudinary...');
+    imgSrc = await uploadToCloudinary(rawDataURL, 'image');
+    hideLoading();
+  } catch(cErr) {
+    hideLoading();
+    console.warn('Cloudinary upload failed, falling back to local base64:', cErr);
+    try { imgSrc = await compressBase64Image(rawDataURL); } catch(e) {}
+  }
+
   var newImage = {
     id: 'cam' + Date.now(),
-    src: rawDataURL,
+    src: imgSrc,
     name: 'Photo_' + todayISO() + '_' + timestamp + '.jpg',
     category: cat,
     date: todayISO()
