@@ -23130,3 +23130,18 @@ function fmr_printProgress(id) {
   win.focus();
   setTimeout(function(){ win.print(); }, 400);
 }
+
+/* ── Public Patient Registration Link Copy ── */
+function copyPublicRegisterLink() {
+  var url = window.location.origin + '/register';
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function() {
+      alert('✅ Patient Self-Registration Link Copied!\n\n' + url + '\n\nYou can share this link with patients on WhatsApp/SMS for direct self-registration.');
+    }).catch(function() {
+      prompt('Copy this Patient Registration link:', url);
+    });
+  } else {
+    prompt('Copy this Patient Registration link:', url);
+  }
+}
+window.copyPublicRegisterLink = copyPublicRegisterLink;
