@@ -2,8 +2,8 @@ import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hos-session-secret-key-987';
 
-export function generateToken() {
-  return jwt.sign({ authenticated: true }, JWT_SECRET, { expiresIn: '7d' });
+export function generateToken(payload = { authenticated: true, role: 'doctor' }, expiresIn = '30d') {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn });
 }
 
 export function verifyToken(req) {

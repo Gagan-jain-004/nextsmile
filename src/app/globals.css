@@ -177,14 +177,44 @@ mark.hl{background:#fef08a;color:#1e293b;border-radius:3px;padding:0 2px;font-we
 .appt-time-badge .time{font-size:14px;font-weight:800;color:#16a34a}
 .appt-time-badge .ampm{font-size:9px;color:#059669;font-weight:700}
 
-/* ══ PIN LOCK ══ */
-#pin-screen{display:none;position:fixed;inset:0;background:linear-gradient(135deg,#1e3a5f,#1d4ed8);z-index:99999;align-items:center;justify-content:center;flex-direction:column}
+/* ══ DOCTOR ADMIN LOGIN SCREEN ══ */
+#pin-screen{display:none;position:fixed;inset:0;background:radial-gradient(circle at 50% 20%, #1e3a5f 0%, #0f172a 100%);z-index:99999;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
 #pin-screen.show{display:flex}
-.pin-dot{width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.3);transition:background .2s}
-.pin-dot.filled{background:#fff}
-.pin-key{width:70px;height:70px;border-radius:50%;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:22px;font-weight:700;cursor:pointer;transition:all .15s;font-family:'DM Sans',sans-serif}
-.pin-key:hover{background:rgba(255,255,255,.22)}
-.pin-key:active{transform:scale(.93)}
+.doc-login-card{background:rgba(255,255,255,0.98);border-radius:24px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.35),0 0 0 1px rgba(255,255,255,0.1);max-width:440px;width:100%;padding:36px 32px;position:relative;animation:fadeUp .3s ease}
+.doc-login-brand{text-align:center;margin-bottom:24px}
+.doc-login-logo{background:#fff;border-radius:14px;padding:8px 16px;display:inline-block;box-shadow:0 4px 14px rgba(0,0,0,0.06);margin-bottom:12px}
+.doc-login-title{font-size:20px;font-weight:800;color:#1e3a5f;letter-spacing:-0.3px;margin-bottom:4px}
+.doc-login-sub{font-size:13px;color:#64748b;font-weight:500}
+.doc-login-badge{display:inline-flex;align-items:center;gap:6px;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;margin-top:8px}
+.doc-login-group{margin-bottom:18px;text-align:left}
+.doc-login-label{display:block;font-size:12px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
+.doc-input-wrapper{position:relative;display:flex;align-items:center}
+.doc-input-icon{position:absolute;left:14px;color:#94a3b8;font-size:16px;pointer-events:none}
+.doc-input{width:100%;padding:12px 14px 12px 42px;border:1.5px solid #cbd5e1;border-radius:12px;font-size:14px;font-family:'DM Sans',sans-serif;color:#1e293b;background:#f8fafc;transition:all .2s;outline:none}
+.doc-input:focus{border-color:#2563eb;background:#fff;box-shadow:0 0 0 4px rgba(37,99,235,0.12)}
+.doc-input-pass{padding-right:44px}
+.doc-pass-toggle{position:absolute;right:10px;background:none;border:none;color:#64748b;font-size:16px;cursor:pointer;padding:6px;border-radius:8px;display:flex;align-items:center;justify-content:center}
+.doc-pass-toggle:hover{color:#1e293b;background:#f1f5f9}
+.doc-remember-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;font-size:13px;color:#475569}
+.doc-remember-label{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;font-weight:500}
+.doc-checkbox{width:17px;height:17px;accent-color:#2563eb;border-radius:4px;cursor:pointer}
+.doc-btn-submit{width:100%;padding:13px 20px;border-radius:12px;background:linear-gradient(135deg,#1d4ed8,#0ea5e9);color:#fff;border:none;font-size:15px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .2s;box-shadow:0 4px 14px rgba(29,78,216,0.3);display:flex;align-items:center;justify-content:center;gap:8px}
+.doc-btn-submit:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(29,78,216,0.4)}
+.doc-btn-submit:active{transform:translateY(0)}
+.doc-btn-submit:disabled{opacity:0.7;cursor:not-allowed;transform:none}
+.doc-login-error{background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:10px 14px;border-radius:10px;font-size:13px;font-weight:600;margin-bottom:18px;display:none;align-items:center;gap:8px}
+.doc-login-error.show{display:flex}
+.doc-logout-btn{background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;margin-top:6px}
+.doc-logout-btn:hover{background:#fee2e2;color:#dc2626;border-color:#fca5a5}
+body.dark-mode .doc-login-card{background:#1e293b;box-shadow:0 25px 50px -12px rgba(0,0,0,0.6);border-color:#334155}
+body.dark-mode .doc-login-title{color:#f8fafc}
+body.dark-mode .doc-login-sub{color:#94a3b8}
+body.dark-mode .doc-login-label{color:#cbd5e1}
+body.dark-mode .doc-input{background:#0f172a;border-color:#334155;color:#f8fafc}
+body.dark-mode .doc-input:focus{border-color:#3b82f6;background:#0f172a}
+body.dark-mode .doc-pass-toggle{color:#94a3b8}
+body.dark-mode .doc-pass-toggle:hover{color:#f8fafc;background:#334155}
+body.dark-mode .doc-remember-row{color:#94a3b8}
 
 /* ══ STORAGE STATUS ══ */
 #storage-status{position:fixed;bottom:12px;right:12px;z-index:200;font-size:11px;padding:5px 12px;border-radius:20px;background:#ecfdf5;color:#059669;border:1px solid #a7f3d0;font-weight:600;opacity:0;transition:opacity .3s}

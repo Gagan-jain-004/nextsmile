@@ -159,7 +159,7 @@ var DATA = getDefaultData();
 var dbReady = false;
 
 function getAuthHeader() {
-  const token = sessionStorage.getItem('hos_session_token');
+  const token = localStorage.getItem('hos_session_token');
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 }
 
@@ -258,7 +258,7 @@ function splitIntoSizeChunks(items, maxBytes = 1200000) {
 }
 
 async function saveData(options = {}) {
-  const token = sessionStorage.getItem('hos_session_token');
+  const token = localStorage.getItem('hos_session_token');
   if (!token) {
     if (options.throwOnError) throw new Error('No active session token. Please enter PIN again.');
     return { cloud: false, error: 'No session token' };
@@ -304,7 +304,7 @@ async function saveData(options = {}) {
       });
 
       if (res.status === 401) {
-        sessionStorage.removeItem('hos_session_token');
+        localStorage.removeItem('hos_session_token');
         document.getElementById('pin-screen').classList.add('show');
         if (options.throwOnError) throw new Error('Unauthorized session. Please enter PIN again.');
         return { cloud: false, error: 'Unauthorized' };
@@ -351,7 +351,7 @@ function showSavedToast(text = '💾 Saved') {
 }
 
 async function loadDataFromDB() {
-  const token = sessionStorage.getItem('hos_session_token');
+  const token = localStorage.getItem('hos_session_token');
   if (!token) {
     document.getElementById('pin-screen').classList.add('show');
     return DATA;
@@ -366,7 +366,7 @@ async function loadDataFromDB() {
     });
 
     if (res.status === 401) {
-      sessionStorage.removeItem('hos_session_token');
+      localStorage.removeItem('hos_session_token');
       document.getElementById('pin-screen').classList.add('show');
       return DATA;
     }
@@ -471,125 +471,130 @@ function migrateData(d) {
 }
 
 /* ══════════════════════════════════════════════════════
-   PIN LOCK SYSTEM
+   DOCTOR PORTAL AUTHENTICATION & 30-DAY SESSION SYSTEM
 ══════════════════════════════════════════════════════ */
-var pinBuffer = '';
 
-function initPinLock() {
-  const token = sessionStorage.getItem('hos_session_token');
-  if (!token) {
-    document.getElementById('pin-screen').classList.add('show');
-  } else {
-    document.getElementById('pin-screen').classList.remove('show');
-  }
-}
-
-// Enable typing PIN directly from keyboard / physical Numpad
-window.addEventListener('keydown', (e) => {
+function initDoctorAuth() {
+  const token = localStorage.getItem('hos_session_token');
   const pinScreen = document.getElementById('pin-screen');
-  if (!pinScreen || !pinScreen.classList.contains('show')) return;
-
-  // Number keys (Top row and Numpad)
-  if ((e.key >= '0' && e.key <= '9')) {
-    e.preventDefault();
-    pinKey(e.key);
-  } else if (e.key === 'Backspace') {
-    e.preventDefault();
-    pinKey('back');
-  } else if (e.key === 'Escape' || e.key === 'Delete') {
-    e.preventDefault();
-    pinKey('clear');
+  if (!pinScreen) return;
+  if (!token) {
+    pinScreen.classList.add('show');
+  } else {
+    pinScreen.classList.remove('show');
   }
-});
+}
 
-function pinKey(k) {
-  if (k === 'clear') { pinBuffer = ''; updatePinDots(); return; }
-  if (k === 'back')  { pinBuffer = pinBuffer.slice(0,-1); updatePinDots(); return; }
-  if (pinBuffer.length >= 4) return;
-  pinBuffer += k;
-  updatePinDots();
-  if (pinBuffer.length === 4) {
-    setTimeout(async () => {
-      document.getElementById('pin-error').textContent = 'Verifying PIN...';
-      try {
-        const res = await fetch('/api/verify-pin', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pin: pinBuffer })
-        });
-        
-        if (res.ok) {
-          const body = await res.json();
-          sessionStorage.setItem('hos_session_token', body.token);
-          document.getElementById('pin-screen').classList.remove('show');
-          pinBuffer = '';
-          updatePinDots();
-          document.getElementById('pin-error').textContent = '';
-          
-          // Now fetch data
-          showLoading('Loading clinic data...');
-          await loadDataFromDB();
-          hideLoading();
-          
-          // Re-render current page
-          goPage(curPage || 'dashboard');
-        } else {
-          document.getElementById('pin-error').textContent = 'Incorrect PIN. Try again.';
-          pinBuffer = '';
-          updatePinDots();
-        }
-      } catch (err) {
-        document.getElementById('pin-error').textContent = 'Server error. Try again.';
-        pinBuffer = '';
-        updatePinDots();
+function togglePasswordVisibility() {
+  const passInput = document.getElementById('doc-login-pass');
+  const icon = document.getElementById('doc-pass-icon');
+  if (!passInput) return;
+  if (passInput.type === 'password') {
+    passInput.type = 'text';
+    if (icon) icon.textContent = '🙈';
+  } else {
+    passInput.type = 'password';
+    if (icon) icon.textContent = '👁️';
+  }
+}
+
+async function handleDoctorLogin(e) {
+  if (e && typeof e.preventDefault === 'function') e.preventDefault();
+  const errEl = document.getElementById('login-error');
+  const errTextEl = document.getElementById('login-error-text');
+  const spinner = document.getElementById('doc-login-spinner');
+  const btnText = document.getElementById('doc-login-btn-text');
+  const btn = document.getElementById('doc-login-btn');
+
+  const userInput = document.getElementById('doc-login-user');
+  const passInput = document.getElementById('doc-login-pass');
+  const rememberInput = document.getElementById('doc-remember-me');
+
+  const username = (userInput ? userInput.value : '').trim();
+  const password = (passInput ? passInput.value : '').trim();
+  const rememberMe = rememberInput ? rememberInput.checked : true;
+
+  if (!username || !password) {
+    if (errEl && errTextEl) {
+      errTextEl.textContent = 'Please enter both username and password';
+      errEl.classList.add('show');
+    }
+    return;
+  }
+
+  if (errEl) errEl.classList.remove('show');
+  if (spinner) spinner.style.display = 'inline-block';
+  if (btnText) btnText.textContent = 'Verifying Credentials...';
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/doctor-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, rememberMe })
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok && data.token) {
+      localStorage.setItem('hos_session_token', data.token);
+      if (data.username) {
+        localStorage.setItem('hos_doctor_user', data.username);
       }
-    }, 100);
+      const pinScreen = document.getElementById('pin-screen');
+      if (pinScreen) pinScreen.classList.remove('show');
+      if (passInput) passInput.value = '';
+
+      showLoading('Loading clinic database...');
+      await loadDataFromDB();
+      hideLoading();
+
+      goPage(curPage || 'dashboard');
+    } else {
+      if (errEl && errTextEl) {
+        errTextEl.textContent = data.error || 'Invalid credentials. Please try again.';
+        errEl.classList.add('show');
+      }
+    }
+  } catch (err) {
+    if (errEl && errTextEl) {
+      errTextEl.textContent = 'Server/network error. Please try again.';
+      errEl.classList.add('show');
+    }
+  } finally {
+    if (spinner) spinner.style.display = 'none';
+    if (btnText) btnText.textContent = 'Sign In to Doctor Portal →';
+    if (btn) btn.disabled = false;
   }
 }
 
-function updatePinDots() {
-  for (let i=0;i<4;i++) {
-    document.getElementById('pd'+i).classList.toggle('filled', i < pinBuffer.length);
+function logoutDoctor() {
+  if (confirm('Sign out and lock the Doctor Portal on this device?')) {
+    localStorage.removeItem('hos_session_token');
+    const pinScreen = document.getElementById('pin-screen');
+    if (pinScreen) pinScreen.classList.add('show');
+    const errEl = document.getElementById('login-error');
+    if (errEl) errEl.classList.remove('show');
+    const passInput = document.getElementById('doc-login-pass');
+    if (passInput) passInput.value = '';
   }
 }
 
-function skipPin() {
-  alert('PIN lock is mandatory for cloud database access. Please enter the correct practice PIN.');
-}
+window.handleDoctorLogin = handleDoctorLogin;
+window.togglePasswordVisibility = togglePasswordVisibility;
+window.logoutDoctor = logoutDoctor;
 
-function renderPinSettings() {
-  document.getElementById('pin-settings').innerHTML = `
-    <div class="alert-box alert-green">PIN Lock security is managed centrally via Vercel Environment Variables.</div>
+function renderAuthSettings() {
+  const el = document.getElementById('pin-settings');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="alert-box alert-green">
+      <strong>🔒 Doctor Portal Security:</strong> Protected with 30-Day persistent authentication session. 
+      Credentials (<code>ADMIN_USERNAME</code> &amp; <code>ADMIN_PASSWORD</code>) are securely managed in your server environment variables.
+    </div>
   `;
 }
 
-function setPinFlow() {
-  const pin = prompt('Enter a 4-digit PIN:','');
-  if (!pin || !/^\d{4}$/.test(pin)) { alert('Please enter exactly 4 digits.'); return; }
-  const confirm2 = prompt('Confirm your PIN:','');
-  if (pin !== confirm2) { alert('PINs do not match.'); return; }
-  DATA.settings.pinEnabled = true;
-  DATA.settings.pin = pin;
-  saveData(); renderPinSettings();
-  alert('PIN set successfully! The app will ask for PIN next time you open it.');
-}
-
-function changePinFlow() {
-  const old = prompt('Enter current PIN:','');
-  if (old !== DATA.settings.pin) { alert('Incorrect current PIN.'); return; }
-  const pin = prompt('Enter new 4-digit PIN:','');
-  if (!pin || !/^\d{4}$/.test(pin)) { alert('Please enter exactly 4 digits.'); return; }
-  DATA.settings.pin = pin;
-  saveData(); renderPinSettings();
-  alert('PIN changed successfully!');
-}
-
-function disablePin() {
-  if (!confirm('Disable PIN lock? The app will be accessible without a PIN.')) return;
-  DATA.settings.pinEnabled = false;
-  DATA.settings.pin = '';
-  saveData(); renderPinSettings();
-}
 
 /* ══════════════════════════════════════════════════════
    BACKUP & RESTORE
@@ -718,7 +723,7 @@ async function importBackup(e) {
       DATA = migrateData(parsed);
       dbReady = true;
 
-      const token = sessionStorage.getItem('hos_session_token');
+      const token = localStorage.getItem('hos_session_token');
       if (!token) {
         hideLoading();
         alert('No active session. Please enter PIN first.');
@@ -4785,7 +4790,7 @@ function resetAllData(){
 ══════════════════════════════════════════════════════ */
 function renderBackupPage() {
   renderStorageInfo();
-  renderPinSettings();
+  renderAuthSettings();
 }
 
 /* ══════════════════════════════════════════════════════
@@ -5688,7 +5693,7 @@ async function initApp() {
   // Clear any corrupted nav order from previous drag-reorder feature
   localStorage.removeItem('hos_nav_order');
   await loadDataFromDB();
-  initPinLock();
+  initDoctorAuth();
   restoreDisplayPrefs();
   goPage('dashboard');
   // Warn if running on file:// - camera/xray won't work
