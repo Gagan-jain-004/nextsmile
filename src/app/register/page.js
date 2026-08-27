@@ -230,7 +230,8 @@ export default function RegisterPage() {
               Dr. Tanmay Jain
             </h1>
             <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-              MDS – Orthodontics &amp; Dentofacial Orthopedics | Dental Clinic
+              {/* MDS – Orthodontics &amp; Dentofacial Orthopedics | */}
+               Dental Clinic
             </p>
           </div>
 
