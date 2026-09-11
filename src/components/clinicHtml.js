@@ -78,7 +78,8 @@ export const CLINIC_HTML = `
         <select class="form-input" id="ep-type">
           <option value="regular">Regular Patient</option>
           <option value="ortho">Orthodontic Patient</option>
-              <option value="pediatric">Pediatric Patient</option>
+          <option value="aligner">Aligner Patient</option>
+          <option value="pediatric">Pediatric Patient</option>
         </select>
       </div>
     </div>
@@ -136,8 +137,10 @@ export const CLINIC_HTML = `
       <div class="nav-item" id="nav-search"       onclick="goPage('search')">🔍 Global Search</div>
       <div class="nav-item" id="nav-dashboard"   onclick="goPage('dashboard')">🏠 Dashboard</div>
       <div class="nav-item" id="nav-patients"     onclick="goPage('patients')">👥 Patients</div>
-      <div class="nav-item" id="nav-ortho"        onclick="goPage('ortho')">🦷 Ortho Patients</div>      <div class="nav-item" id="nav-rx-templates" onclick="goPage('rx-templates')">📝 Rx Templates</div>
+      <div class="nav-item" id="nav-ortho"        onclick="goPage('ortho')">🦷 Ortho Patients</div>
+      <div class="nav-item" id="nav-aligner"      onclick="goPage('aligner')">💎 Aligner Cases</div>
       <div class="nav-item" id="nav-appointments" onclick="goPage('appointments')">📅 Appointments</div>
+      <div class="nav-item" id="nav-rx-templates" onclick="goPage('rx-templates')">📝 Rx Templates</div>
       <div class="nav-item" id="nav-recall"       onclick="goPage('recall')">🔔 Patient Recall</div>
       <div class="nav-item" id="nav-records"      onclick="goPage('records')">🩺 Clinical Records</div>
       <div class="nav-item" id="nav-images"       onclick="goPage('images')">📷 Images & X-Rays</div>
@@ -294,6 +297,7 @@ export const CLINIC_HTML = `
             <select class="form-input" id="f-type">
               <option value="regular">Regular Patient</option>
               <option value="ortho">Orthodontic Patient</option>
+              <option value="aligner">Aligner Patient</option>
               <option value="pediatric">Pediatric Patient</option>
             </select>
           </div>
@@ -360,6 +364,7 @@ export const CLINIC_HTML = `
       <div id="tab-content-billing"        style="display:none"></div>
       <div id="tab-content-ortho-detail"   style="display:none"></div>
       <div id="tab-content-ortho-visits"  style="display:none"></div>
+      <div id="tab-content-aligner-detail" style="display:none"></div>
       <div id="tab-content-tooth-chart"   style="display:none"></div>
       <div id="tab-content-tx-plan"       style="display:none"></div>
       <div id="tab-content-rct" style="display:none"><div id="rct-tracker-content"></div></div>
