@@ -3811,6 +3811,7 @@ function saveBill(){
   renderPatientHeader();
   setTimeout(function(){ billing_waPrompt(totalAmt, item); }, 400);
 }
+
 function toggleBillPaid(id){
   var idx=DATA.patients.findIndex(function(p){return p.id===activePt.id;});
   DATA.patients[idx].billing=(DATA.patients[idx].billing||[]).map(function(b){
@@ -3825,6 +3826,7 @@ function toggleBillPaid(id){
   });
   activePt=DATA.patients[idx]; saveData(); renderBillingTab(); renderPatientHeader();
 }
+
 function deleteBill(id){if(!confirm('Remove this item?'))return;const idx=DATA.patients.findIndex(p=>p.id===activePt.id);DATA.patients[idx].billing=DATA.patients[idx].billing.filter(b=>b.id!==id);activePt=DATA.patients[idx];saveData();renderBillingTab();renderPatientHeader();}
 
 /* ── SHARE INVOICE WA (FIXED) ── */
@@ -3896,106 +3898,1472 @@ function shareAllData(){
   window.open('https://wa.me/91'+p.phone+'?text='+encodeURIComponent(lines.join(String.fromCharCode(10))),'_blank');
 }
 
-/* ── ORTHO DETAIL TAB ── */
-function renderOrthoDetailTab(){
-  const p=activePt;
-  if(p.type!=='ortho'){
-    // Non-ortho: still show aligner option if they have/could have an aligner case
-    var orthoEl2=document.getElementById('tab-content-ortho-detail');
-    if(orthoEl2) orthoEl2.innerHTML='<div style="padding:16px">'+aligner_renderPatientSummary(p.id)+'</div>';
+/* ══════════════════════════════════════════════════════
+   MONTHLY ORTHODONTIC TREATMENT LOG & PLAN GENERATOR
+══════════════════════════════════════════════════════ */
+var ORTHO_WIRES_LIST = [
+  'NiTi 0.12',
+  'NiTi 0.14',
+  'NiTi 0.16',
+  'NiTi 0.18',
+  'NiTi 0.20',
+  'SS 0.16',
+  'SS 0.16×0.22',
+  'SS 0.17×0.25',
+  'SS 0.19×0.25',
+  'TMA 0.17×0.25',
+  'Retainer'
+];
+
+var ORTHO_PROCEDURES_LIST = [
+  'Bonding',
+  'Rebonding',
+  'IPR',
+  'Power Chain',
+  'Open Coil',
+  'Closed Coil',
+  'Elastics',
+  'Tie-back',
+  'TAD',
+  'Debond',
+  'Retainer',
+  'Other'
+];
+
+function getOrthoFinancials(patient) {
+  var p = patient || activePt || {};
+  var od = p.orthoDetails || {};
+  var totalCost = Number(od.totalCost || 0);
+  var visits = p.orthoVisits || [];
+  var totalPaid = visits.reduce(function(sum, v) {
+    return sum + Number(v.amountPaid || v.paid || 0);
+  }, 0);
+  if (totalPaid === 0 && visits.length === 0 && od.paidAmount) {
+    totalPaid = Number(od.paidAmount || 0);
+  }
+  var dueAmount = Math.max(0, totalCost - totalPaid);
+  var progress = totalCost > 0 ? Math.min(100, (totalPaid / totalCost) * 100) : 0;
+  return { totalCost: totalCost, totalPaid: totalPaid, dueAmount: dueAmount, progress: progress };
+}
+
+function renderOrthoDetailTab() {
+  const p = activePt;
+  if (!p) return;
+  const container = document.getElementById('tab-content-ortho-detail');
+  if (!container) return;
+
+  if (p.type !== 'ortho' && !(p.type || '').toLowerCase().includes('ortho')) {
+    container.innerHTML = `
+      <div class="card card-body" style="text-align:center;padding:32px 16px;margin-bottom:16px">
+        <div style="font-size:38px;margin-bottom:12px">🦷</div>
+        <div style="font-weight:700;font-size:16px;color:#1e293b;margin-bottom:6px">Not Set as Orthodontic Patient</div>
+        <div style="font-size:13px;color:#64748b;margin-bottom:18px">Patient category is currently "${esc(p.type || 'General')}". Enable Orthodontic Log to track monthly archwires, procedures & payments.</div>
+        <button class="btn btn-primary" onclick="convertPatientToOrtho('${p.id}')">🦷 Enable Orthodontic Log for this Patient</button>
+      </div>
+      <div style="padding:10px 0">${typeof aligner_renderPatientSummary === 'function' ? aligner_renderPatientSummary(p.id) : ''}</div>
+    `;
     return;
   }
-  const od=p.orthoDetails||{};
-  const totalCost=Number(od.totalCost||0); const paidAmt=Number(od.paidAmount||0); const dueAmt=totalCost-paidAmt;
-  const prog=totalCost>0?Math.min(100,(paidAmt/totalCost)*100):0;
-  document.getElementById('tab-content-ortho-detail').innerHTML=`
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <div class="sec-title" style="margin:0">Orthodontic Details</div>
-      <button class="btn btn-wa btn-sm" onclick="sendApptWA()">WA Appointment</button>
-    </div>
-    <div class="card card-body" style="margin-bottom:16px">
-      <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Start Date</label><input class="form-input" type="date" value="${od.startDate||todayISO()}" onchange="updateOrtho('startDate',this.value)"/></div>
-        <div class="form-group"><label class="form-label">Bracket Type</label>
-          <select class="form-input" onchange="updateOrtho('bracket',this.value)">${BRACKETS.map(b=>`<option ${od.bracket===b?'selected':''}>${b}</option>`).join('')}</select>
-        </div>
-        <div class="form-group"><label class="form-label">Total Treatment Cost (Rs.)</label><input class="form-input" type="number" value="${od.totalCost||''}" placeholder="e.g. 35000" onchange="updateOrtho('totalCost',this.value)"/></div>
-        <div class="form-group"><label class="form-label">Amount Paid (Rs.)</label><input class="form-input" type="number" value="${od.paidAmount||''}" placeholder="0" onchange="updateOrtho('paidAmount',this.value)"/></div>
-      </div>
-      ${totalCost>0?`<div style="margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px;font-weight:600;color:#64748b">
-          <span>Payment Progress</span><span>${fmtMoney(paidAmt)} / ${fmtMoney(totalCost)}</span>
-        </div>
-        <div class="prog-track"><div class="prog-fill" style="width:${prog}%;background:linear-gradient(90deg,#1d4ed8,#0ea5e9)"></div></div>
-        <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:#94a3b8">
-          <span>${prog.toFixed(0)}% paid</span><span>Due: ${fmtMoney(dueAmt)}</span>
-        </div>
-      </div>`:''}
-      <div class="form-group"><label class="form-label">Treatment Notes</label><textarea class="form-input" rows="3" onchange="updateOrtho('treatmentNotes',this.value)" placeholder="Extractions planned, wire sequence, etc.">${esc(od.treatmentNotes||'')}</textarea></div>
-    </div>
-    <div class="card card-body">
-      <div class="sec-title">Next Appointment</div>
-      <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Appointment Date</label><input class="form-input" type="date" id="appt-date" value="${od.nextAppt||''}" onchange="updateOrtho('nextAppt',this.value)"/></div>
-        <div class="form-group"><label class="form-label">Appointment Time</label><input class="form-input" type="time" id="appt-time" value="${od.nextApptTime||'10:00'}" onchange="updateOrtho('nextApptTime',this.value)"/></div>
-      </div>
-      ${od.nextAppt?`<div class="alert-box alert-green" style="margin-top:4px;font-size:13px">
-        Next appointment: <strong>${fmtDate(od.nextAppt)}</strong> at <strong>${od.nextApptTime||'-'}</strong>
-        <br/><button class="btn btn-wa btn-sm" style="margin-top:10px" onclick="sendApptWA()">Send WhatsApp Reminder</button>
-      </div>`:''}
-    </div>
-    ${ortho_renderProgressPhotos(p)}`;
-  // Inject enhanced tracking panel
-  setTimeout(function(){
-    var orthoEl=document.getElementById('tab-content-ortho-detail');
-    if(orthoEl&&activePt){
-      var od=(activePt.orthoDetails||{});
-      // Inject aligner summary at top of ortho tab
-      var alignerDiv=document.createElement('div');
-      alignerDiv.innerHTML=aligner_renderPatientSummary(p.id);
-      orthoEl.insertBefore(alignerDiv,orthoEl.firstChild);
 
-      var ep=document.createElement('div');
-      ep.innerHTML=ortho_renderEnhancedPanel(od);
-      orthoEl.appendChild(ep);
+  // Ensure all visits have a permanent unique ID and status
+  if (p.orthoVisits && p.orthoVisits.length > 0) {
+    p.orthoVisits.forEach((v, idx) => {
+      if (!v.id) {
+        v.id = 'ov_' + (v.date || v.plannedDate || todayISO()).replace(/\D/g, '') + '_' + idx + '_' + Math.random().toString(36).substr(2, 4);
+      }
+      if (!v.status) {
+        v.status = (v.amountPaid > 0 || v.wireUpper || v.wireLower || v.wire || v.notes || (v.procedures && v.procedures.length)) ? 'Completed' : 'Pending';
+      }
+    });
+  }
+
+  const od = p.orthoDetails || {};
+  const fin = getOrthoFinancials(p);
+  const plan = p.orthoTreatmentPlan || {};
+  const hasPlan = plan.stages && plan.stages.length > 0;
+  const visits = (p.orthoVisits || []).slice();
+
+  // Sort visits chronologically (earliest to latest) to calculate Month 1, Month 2... and cumulative balance
+  const chronological = visits.slice().sort(function(a, b) {
+    const da = a.date || a.plannedDate || '';
+    const db = b.date || b.plannedDate || '';
+    return da.localeCompare(db);
+  });
+
+  let cumulative = 0;
+  chronological.forEach(function(v, idx) {
+    v.monthNum = v.monthNum || (idx + 1);
+    cumulative += Number(v.amountPaid || v.paid || 0);
+    v.cumulativePaid = cumulative;
+    v.balanceAfter = Math.max(0, fin.totalCost - cumulative);
+  });
+
+  // Sort newest first for timeline display
+  const displayVisits = chronological.slice().reverse();
+
+  // Find latest next appointment date
+  let latestNextAppt = '';
+  const latestApptVisit = displayVisits.find(v => !!v.nextAppt);
+  if (latestApptVisit) {
+    latestNextAppt = latestApptVisit.nextAppt;
+  } else if (od.nextAppt) {
+    latestNextAppt = od.nextAppt;
+  }
+
+  const pendingVisitsCount = displayVisits.filter(v => v.status === 'Pending').length;
+  const completedVisitsCount = displayVisits.filter(v => v.status === 'Completed').length;
+
+  container.innerHTML = `
+    <!-- Top Action Header -->
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div>
+        <div class="sec-title" style="margin:0;display:flex;align-items:center;gap:8px">
+          <span>🦷 Monthly Orthodontic Treatment Log</span>
+          <span class="badge badge-purple" style="font-size:12px;padding:3px 8px">${completedVisitsCount} Completed${pendingVisitsCount ? ` &bull; ${pendingVisitsCount} Planned` : ''}</span>
+        </div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px">Custom wire sequences, planned vs actual tracking &amp; month-wise timeline</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm" style="background:#7c3aed;color:#ffffff;border:none;font-weight:700" onclick="showOrthoTreatmentPlanModal()">📋 ${hasPlan ? 'Edit Treatment Plan' : 'Create Treatment Plan'}</button>
+        ${pendingVisitsCount > 0 ? `<button class="btn btn-sm" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-weight:700" onclick="showShiftFutureTimelineModal()">⏩ Shift Future Timeline</button>` : ''}
+        <button class="btn btn-primary btn-sm" onclick="showOrthoMonthlyVisitModal()"><span style="font-size:14px;margin-right:2px">➕</span> New Visit</button>
+        <button class="btn btn-ghost btn-sm" style="background:#f8fafc;border:1px solid #cbd5e1" onclick="printOrthoProgressSheet('${p.id}')">🖨️ Progress Sheet</button>
+        ${latestNextAppt ? `<button class="btn btn-wa btn-sm" onclick="sendApptWA()">📲 WA Reminder</button>` : ''}
+      </div>
+    </div>
+
+    <!-- Fixed Fields Top Summary Card -->
+    <div class="card card-body" style="margin-bottom:18px;border-top:4px solid #7c3aed;background:#ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.04)">
+      <div class="form-grid-2" style="margin-bottom:14px">
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;color:#334155">Start Date</label>
+          <input class="form-input" type="date" value="${od.startDate || plan.startDate || p.createdAt || todayISO()}" onchange="updateOrthoFixedField('startDate', this.value)"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;color:#334155">Bracket Type</label>
+          <select class="form-input" onchange="updateOrthoFixedField('bracket', this.value)">
+            ${BRACKETS.map(b => `<option ${od.bracket === b ? 'selected' : ''}>${b}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;color:#334155">Total Treatment Cost (₹)</label>
+          <input class="form-input" type="number" min="0" value="${od.totalCost || ''}" placeholder="e.g. 35000" onchange="updateOrthoFixedField('totalCost', this.value)"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;color:#334155">Total Paid (auto calculated)</label>
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d;font-weight:800;font-size:15px;padding:9px 12px;border-radius:8px;display:flex;align-items:center;justify-content:space-between">
+            <span>${fmtMoney(fin.totalPaid)}</span>
+            <span style="font-size:11px;font-weight:600;color:#16a34a;background:#dcfce7;padding:2px 8px;border-radius:99px">${completedVisitsCount} Payment${completedVisitsCount === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Financial Metrics & Progress Bar -->
+      <div style="background:#f8fafc;border-radius:10px;padding:12px 14px;border:1px solid #e2e8f0">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px;font-weight:700;color:#475569">
+          <span>Payment Progress (${fin.progress.toFixed(0)}%)</span>
+          <div style="display:flex;gap:14px">
+            <span style="color:#059669">Paid: ${fmtMoney(fin.totalPaid)}</span>
+            <span style="color:${fin.dueAmount > 0 ? '#dc2626' : '#059669'}">${fin.dueAmount > 0 ? 'Due Amount: ' + fmtMoney(fin.dueAmount) : '✅ Fully Paid'}</span>
+          </div>
+        </div>
+        <div class="prog-track" style="height:10px;border-radius:99px;background:#e2e8f0;overflow:hidden">
+          <div class="prog-fill" style="width:${fin.progress}%;height:100%;border-radius:99px;background:linear-gradient(90deg,#7c3aed,#0ea5e9);transition:width .4s ease"></div>
+        </div>
+      </div>
+
+      <!-- Plan Overview Banner if Plan exists -->
+      ${hasPlan ? `
+        <div style="margin-top:12px;padding:10px 12px;background:#f5f3ff;border-radius:8px;border:1px solid #ddd6fe;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px">
+          <div>
+            <strong style="color:#6b21a8">📋 Custom Plan:</strong> ${plan.stages.length} Stages &bull; Interval: Every ${plan.intervalDays || 28} Days &bull; Duration: ${plan.estimatedMonths || plan.stages.length} Months
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" style="background:#fff;padding:2px 8px;font-size:11px" onclick="showOrthoTreatmentPlanModal()">✏️ Edit Plan</button>
+            <button class="btn btn-ghost btn-sm" style="background:#fff;padding:2px 8px;font-size:11px" onclick="showShiftFutureTimelineModal()">⏩ Shift Dates</button>
+          </div>
+        </div>
+      ` : `
+        <div style="margin-top:12px;padding:10px 12px;background:#fdf4ff;border-radius:8px;border:1px dashed #f0abfc;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px">
+          <div style="color:#86198f">
+            💡 <strong>Treatment Plan Tip:</strong> Create this patient's custom wire progression sequence once, and automatically generate the entire monthly timeline.
+          </div>
+          <button class="btn btn-sm" style="background:#c026d3;color:#fff;border:none;font-weight:700" onclick="showOrthoTreatmentPlanModal()">⚡ Generate Custom Plan</button>
+        </div>
+      `}
+    </div>
+
+    <!-- Timeline Header -->
+    <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:800;font-size:13px;color:#1e293b;text-transform:uppercase;letter-spacing:0.5px">📅 Month-wise Treatment Timeline</div>
+      <div style="font-size:12px;color:#64748b">Newest visits first</div>
+    </div>
+
+    <!-- Timeline Visit Cards List -->
+    <div id="ortho-timeline-list">
+      ${displayVisits.length === 0 ? `
+        <div class="empty" style="border:2px dashed #cbd5e1;border-radius:14px;padding:36px 16px;text-align:center;background:#f8fafc">
+          <span class="empty-icon" style="font-size:42px">🦷</span>
+          <div class="empty-title" style="font-size:15px;font-weight:700;color:#334155;margin-top:8px">No orthodontic timeline generated yet</div>
+          <p style="font-size:12px;color:#64748b;margin:6px 0 16px">Click below to create a custom treatment plan or record Month 1 visit directly.</p>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="showOrthoTreatmentPlanModal()">📋 Create Treatment Plan</button>
+            <button class="btn btn-ghost" style="border:1px solid #cbd5e1" onclick="showOrthoMonthlyVisitModal()">➕ Add Single Visit</button>
+          </div>
+        </div>
+      ` : displayVisits.map(v => renderOrthoTimelineCard(v, p)).join('')}
+    </div>
+  `;
+}
+
+function renderOrthoTimelineCard(v, p) {
+  const isPending = v.status === 'Pending';
+  const procs = Array.isArray(v.procedures) ? v.procedures : (v.procedures ? [v.procedures] : (v.procedure ? [v.procedure] : (v.plannedProcedures || [])));
+  const procPills = procs.length > 0
+    ? procs.map(pr => `<span style="display:inline-block;background:${isPending ? '#fef3c7' : '#ede9fe'};color:${isPending ? '#92400e' : '#6d28d9'};font-weight:700;font-size:11px;padding:2px 8px;border-radius:99px;margin-right:4px;margin-bottom:3px">${esc(pr)}</span>`).join('')
+    : '<span style="color:#94a3b8;font-size:12px">None</span>';
+
+  const photos = Array.isArray(v.photos) ? v.photos : (v.photos ? [v.photos] : []);
+  const safeId = esc(String(v.id || ''));
+  const cardDate = v.date || v.plannedDate || todayISO();
+
+  return `
+    <div class="card" style="margin-bottom:14px;border-left:4px solid ${isPending ? '#f59e0b' : '#7c3aed'};background:#ffffff;box-shadow:0 1px 4px rgba(0,0,0,0.05);padding:14px 16px;border-radius:10px">
+      <!-- Card Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #f1f5f9">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-weight:800;font-size:15px;color:#1e293b">Month ${v.monthNum || 1} — ${fmtDate(cardDate)}</span>
+          <span class="badge" style="font-size:11px;font-weight:700;background:${isPending ? '#fef3c7;color:#92400e;border:1px solid #fde68a' : '#dcfce7;color:#15803d;border:1px solid #bbf7d0'}">
+            ${isPending ? '⏳ Planned (Pending)' : '✅ Completed'}
+          </span>
+          ${v.arch ? `<span class="badge" style="background:#f1f5f9;color:#475569;font-size:11px;font-weight:700">${esc(v.arch)}</span>` : ''}
+        </div>
+        <div style="display:flex;gap:6px">
+          ${isPending ? `<button class="btn btn-primary btn-sm" style="padding:4px 10px;font-size:11px;font-weight:700" onclick="showOrthoMonthlyVisitModal('${safeId}')">📝 Record Follow-up</button>` : ''}
+          <button class="btn btn-ghost btn-sm" style="background:#f8fafc;border:1px solid #e2e8f0;padding:4px 10px;font-size:11px;font-weight:600" onclick="showOrthoMonthlyVisitModal('${safeId}')">✏️ Edit</button>
+          <button class="btn btn-red btn-sm" style="padding:4px 10px;font-size:11px;font-weight:600" onclick="deleteOrthoMonthlyVisit('${safeId}')">🗑️ Delete</button>
+        </div>
+      </div>
+
+      <!-- Card Key Details Grid -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:8px;font-size:12px;margin-bottom:10px">
+        <div>
+          <span style="color:#64748b;font-weight:600">${isPending ? 'Planned Upper:' : 'Upper:'}</span>
+          <strong style="color:#7c3aed;margin-left:4px">${esc(v.wireUpper || v.wire || v.plannedWireUpper || '-')}</strong>
+        </div>
+        <div>
+          <span style="color:#64748b;font-weight:600">${isPending ? 'Planned Lower:' : 'Lower:'}</span>
+          <strong style="color:#7c3aed;margin-left:4px">${esc(v.wireLower || v.plannedWireLower || '-')}</strong>
+        </div>
+        ${!isPending ? `
+          <div>
+            <span style="color:#64748b;font-weight:600">Paid:</span>
+            <strong style="color:#059669;margin-left:4px">${fmtMoney(v.amountPaid || v.paid || 0)}</strong>
+            ${v.balanceAfter !== undefined ? `<span style="font-size:11px;color:#94a3b8;margin-left:4px">(Bal: ${fmtMoney(v.balanceAfter)})</span>` : ''}
+          </div>
+        ` : ''}
+        ${v.nextAppt ? `
+          <div>
+            <span style="color:#64748b;font-weight:600">Next Appt:</span>
+            <strong style="color:#2563eb;margin-left:4px">${fmtDate(v.nextAppt)}</strong>
+          </div>
+        ` : ''}
+      </div>
+
+      <!-- Clinical Objective (if set) -->
+      ${v.clinicalObjective ? `
+        <div style="margin-bottom:6px;font-size:12px">
+          <span style="font-weight:700;color:#475569">🎯 Objective:</span> <span style="color:#1e293b;font-weight:600">${esc(v.clinicalObjective)}</span>
+        </div>
+      ` : ''}
+
+      <!-- Procedure Tags -->
+      <div style="margin-bottom:8px">
+        <span style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-right:6px">Procedure:</span>
+        ${procPills}
+      </div>
+
+      <!-- Remarks / Clinical Notes -->
+      ${v.remarks && isPending ? `
+        <div style="background:#fffbeb;border-left:3px solid #f59e0b;padding:6px 10px;border-radius:0 6px 6px 0;font-size:11px;color:#78350f;margin-bottom:6px">
+          <strong>Planned Remarks:</strong> ${esc(v.remarks)}
+        </div>
+      ` : ''}
+      ${v.notes ? `
+        <div style="background:#f8fafc;border-left:3px solid #7c3aed;padding:8px 12px;border-radius:0 6px 6px 0;font-size:12px;color:#334155;margin-bottom:8px">
+          <strong>Clinical Notes:</strong> ${esc(v.notes)}
+        </div>
+      ` : ''}
+
+      <!-- Photos (if any) -->
+      ${photos.length > 0 ? `
+        <div style="margin-top:8px">
+          <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:4px">📷 Photos (${photos.length})</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${photos.map((ph, pi) => `
+              <div style="position:relative;width:60px;height:60px;border-radius:6px;overflow:hidden;border:1px solid #cbd5e1;cursor:pointer" onclick="orthoVisit_viewPhoto('${typeof ph === 'string' ? ph : (ph.url || '')}')">
+                <img src="${typeof ph === 'string' ? ph : (ph.url || '')}" style="width:100%;height:100%;object-fit:cover" alt="Ortho photo" />
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function closeOrthoModal() {
+  const el = document.getElementById('ortho-modal-overlay');
+  if (el) el.remove();
+}
+
+/* ══════════════════════════════════════════════════════
+   PLANNING SCREEN MODAL & TIMELINE GENERATION
+══════════════════════════════════════════════════════ */
+function showOrthoTreatmentPlanModal() {
+  const p = activePt;
+  if (!p) return;
+  const od = p.orthoDetails || {};
+  const plan = p.orthoTreatmentPlan || {};
+  const startDate = plan.startDate || od.startDate || todayISO();
+  const intervalDays = plan.intervalDays || 28;
+  const estimatedMonths = plan.estimatedMonths || 12;
+
+  // Existing stages or default template
+  let stages = (plan.stages && plan.stages.length > 0) ? plan.stages.slice() : [];
+  if (stages.length === 0) {
+    stages = createDefaultOrthoStages(estimatedMonths);
+  }
+
+  closeOrthoModal();
+
+  const modalOverlay = document.createElement('div');
+  modalOverlay.id = 'ortho-modal-overlay';
+  modalOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px);box-sizing:border-box';
+
+  modalOverlay.innerHTML = `
+    <div class="card card-body" style="width:100%;max-width:920px;max-height:92vh;overflow-y:auto;background:#ffffff;border-radius:14px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);border:1px solid #e2e8f0;padding:22px;box-sizing:border-box" onclick="event.stopPropagation()">
+      <!-- Modal Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1.5px solid #f1f5f9">
+        <div>
+          <div style="font-size:17px;font-weight:800;color:#7c3aed;display:flex;align-items:center;gap:6px">
+            <span>📋</span>
+            <span>Custom Orthodontic Treatment Plan Generator</span>
+          </div>
+          <div style="font-size:12px;color:#64748b;margin-top:2px">Design custom wire progression, procedures &amp; auto-generate monthly timeline for <strong>${esc(p.name)}</strong></div>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" style="font-size:16px;line-height:1;padding:4px 8px" onclick="closeOrthoModal()">✕</button>
+      </div>
+
+      <!-- Configuration Card -->
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:16px">
+        <div class="form-grid-3" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px">
+          <div class="form-group" style="margin:0">
+            <label class="form-label" style="font-weight:700">Treatment Start Date</label>
+            <input class="form-input" id="otp-start-date" type="date" value="${startDate}" onchange="recalcOrthoPlanDates()"/>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label" style="font-weight:700">Visit Interval</label>
+            <select class="form-input" id="otp-interval" onchange="recalcOrthoPlanDates()">
+              <option value="21" ${intervalDays === 21 ? 'selected' : ''}>Every 21 Days (3 Weeks)</option>
+              <option value="28" ${intervalDays === 28 ? 'selected' : ''}>Every 28 Days (4 Weeks)</option>
+              <option value="30" ${intervalDays === 30 ? 'selected' : ''}>Every 30 Days (Monthly)</option>
+              <option value="35" ${intervalDays === 35 ? 'selected' : ''}>Every 35 Days (5 Weeks)</option>
+              <option value="42" ${intervalDays === 42 ? 'selected' : ''}>Every 42 Days (6 Weeks)</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label" style="font-weight:700">Estimated Duration</label>
+            <div style="display:flex;gap:6px">
+              <input class="form-input" id="otp-duration" type="number" min="1" max="48" value="${estimatedMonths}" style="width:80px"/>
+              <button type="button" class="btn btn-ghost btn-sm" style="background:#ede9fe;color:#6d28d9;font-weight:700;font-size:11px" onclick="applyOrthoPlanDuration()">⚡ Auto-Fill</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Treatment Stages Section -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-weight:800;font-size:14px;color:#1e293b;text-transform:uppercase;letter-spacing:0.5px">
+          🎯 Planned Treatment Stages (<span id="otp-stages-count">${stages.length}</span>)
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" style="padding:4px 12px;font-size:12px;font-weight:700" onclick="addOrthoPlanStageRow()">➕ Add Stage</button>
+      </div>
+
+      <!-- Stages List Container -->
+      <div id="otp-stages-container" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
+        ${stages.map((st, i) => renderOrthoPlanStageRowHtml(st, i + 1, startDate, intervalDays)).join('')}
+      </div>
+
+      <div style="text-align:center;margin-bottom:16px">
+        <button type="button" class="btn btn-ghost btn-sm" style="border:1px dashed #cbd5e1;padding:6px 16px;font-size:12px;font-weight:700;color:#6b21a8" onclick="addOrthoPlanStageRow()">➕ Add Another Treatment Stage</button>
+      </div>
+
+      <!-- Modal Actions -->
+      <div style="display:flex;gap:10px;justify-content:space-between;align-items:center;padding-top:14px;border-top:1.5px solid #f1f5f9;flex-wrap:wrap">
+        <button type="button" class="btn btn-ghost" style="padding:10px 16px" onclick="closeOrthoModal()">Cancel</button>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn btn-ghost" style="border:1px solid #cbd5e1;padding:10px 16px;font-weight:700" onclick="saveOrthoPlanData(false)">💾 Save Plan Draft</button>
+          <button type="button" class="btn btn-primary" style="padding:10px 20px;font-size:14px;font-weight:800;background:linear-gradient(135deg,#7c3aed,#4f46e5)" onclick="saveOrthoPlanData(true)">⚡ Generate / Update Monthly Timeline</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modalOverlay);
+}
+
+function createDefaultOrthoStages(count) {
+  const defaultSequence = [
+    { upper: 'NiTi 0.12', lower: 'NiTi 0.12', procs: ['Bonding'], obj: 'Initial Levelling & Alignment', rem: 'Upper & Lower Bonding' },
+    { upper: 'NiTi 0.14', lower: 'NiTi 0.14', procs: [], obj: 'Rotational correction', rem: '' },
+    { upper: 'NiTi 0.16', lower: 'NiTi 0.16', procs: [], obj: 'Archform coordination', rem: '' },
+    { upper: 'NiTi 0.18', lower: 'NiTi 0.18', procs: [], obj: 'Levelling completion', rem: '' },
+    { upper: 'SS 0.16×0.22', lower: 'SS 0.16×0.22', procs: ['Power Chain'], obj: 'Space Closure & Consolidation', rem: '' },
+    { upper: 'SS 0.17×0.25', lower: 'SS 0.17×0.25', procs: ['Elastics'], obj: 'Torque control & Class II/III correction', rem: '' },
+    { upper: 'SS 0.19×0.25', lower: 'SS 0.19×0.25', procs: ['Power Chain'], obj: 'En-masse retraction', rem: '' },
+    { upper: 'TMA 0.17×0.25', lower: 'TMA 0.17×0.25', procs: [], obj: 'Finishing & Detailing', rem: 'Bends for torque & tip' },
+    { upper: 'SS 0.16', lower: 'SS 0.16', procs: ['Elastics'], obj: 'Settling of occlusion', rem: 'Box / Triangular elastics' },
+    { upper: 'Retainer', lower: 'Retainer', procs: ['Debond', 'Retainer'], obj: 'Debonding & Retention', rem: 'Fixed lingual retainer / Essix' }
+  ];
+
+  const res = [];
+  const n = Math.max(1, count || 12);
+  for (let i = 0; i < n; i++) {
+    const tpl = defaultSequence[i] || defaultSequence[defaultSequence.length - 1];
+    res.push({
+      stageNum: i + 1,
+      plannedWireUpper: tpl.upper,
+      plannedWireLower: tpl.lower,
+      plannedProcedures: (tpl.procs || []).slice(),
+      clinicalObjective: tpl.obj || `Stage ${i + 1} Progress`,
+      remarks: tpl.rem || ''
+    });
+  }
+  return res;
+}
+
+function renderOrthoPlanStageRowHtml(st, stageNum, startDate, intervalDays) {
+  const stageTargetDate = addDaysToDate(startDate, (stageNum - 1) * Number(intervalDays || 28));
+  const selectedProcs = Array.isArray(st.plannedProcedures) ? st.plannedProcedures : (st.plannedProcedures ? [st.plannedProcedures] : []);
+
+  return `
+    <div class="otp-stage-card card" style="background:#ffffff;border:1px solid #e2e8f0;border-left:4px solid #7c3aed;padding:12px 14px;border-radius:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #f1f5f9">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="badge badge-purple" style="font-weight:800;font-size:12px">Month / Stage ${stageNum}</span>
+          <span class="otp-stage-date" style="font-size:12px;color:#64748b;font-weight:600">📅 Est: ${fmtDate(stageTargetDate)}</span>
+        </div>
+        <button type="button" class="btn btn-red btn-sm" style="padding:2px 8px;font-size:11px" onclick="deleteOrthoPlanStageRow(this)">🗑️</button>
+      </div>
+
+      <div class="form-grid-2" style="margin-bottom:8px">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-size:11px;font-weight:700">Planned Upper Wire</label>
+          <select class="form-input otp-stage-wire-upper" style="padding:6px 8px;font-size:12px">
+            <option value="">None / No Wire</option>
+            ${ORTHO_WIRES_LIST.map(w => `<option value="${w}" ${st.plannedWireUpper === w ? 'selected' : ''}>${w}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-size:11px;font-weight:700">Planned Lower Wire</label>
+          <select class="form-input otp-stage-wire-lower" style="padding:6px 8px;font-size:12px">
+            <option value="">None / No Wire</option>
+            ${ORTHO_WIRES_LIST.map(w => `<option value="${w}" ${st.plannedWireLower === w ? 'selected' : ''}>${w}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <!-- Procedures Multi-select -->
+      <div style="margin-bottom:8px">
+        <label class="form-label" style="font-size:11px;font-weight:700">Planned Procedure (Multi-select)</label>
+        <div class="otp-proc-chips-wrap" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px">
+          ${ORTHO_PROCEDURES_LIST.map(pr => {
+            const active = selectedProcs.indexOf(pr) >= 0;
+            return `<button type="button" class="btn btn-sm otp-proc-chip ${active ? 'active' : ''}" data-proc="${pr}" style="${active ? 'background:#7c3aed;color:#ffffff;border:1px solid #6d28d9;' : 'background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;'};font-size:10px;padding:2px 8px;border-radius:99px" onclick="toggleOrthoProcChip(this, '${pr}')">${active ? '✓ ' : ''}${pr}</button>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-size:11px;font-weight:700">Clinical Objective</label>
+          <input class="form-input otp-stage-obj" style="padding:6px 8px;font-size:12px" placeholder="e.g. Levelling & Alignment, Space Closure..." value="${esc(st.clinicalObjective || '')}"/>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-size:11px;font-weight:700">Remarks / Instructions</label>
+          <input class="form-input otp-stage-rem" style="padding:6px 8px;font-size:12px" placeholder="e.g. Bond upper 7s, place open coil..." value="${esc(st.remarks || '')}"/>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function addOrthoPlanStageRow(stageData) {
+  const container = document.getElementById('otp-stages-container');
+  if (!container) return;
+  const count = container.querySelectorAll('.otp-stage-card').length + 1;
+  const startDate = (document.getElementById('otp-start-date') || {}).value || todayISO();
+  const intervalDays = Number((document.getElementById('otp-interval') || {}).value || 28);
+
+  const defaultSt = stageData || {
+    stageNum: count,
+    plannedWireUpper: 'NiTi 0.16',
+    plannedWireLower: 'NiTi 0.16',
+    plannedProcedures: [],
+    clinicalObjective: `Stage ${count} Progress`,
+    remarks: ''
+  };
+
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = renderOrthoPlanStageRowHtml(defaultSt, count, startDate, intervalDays);
+  container.appendChild(tempDiv.firstElementChild);
+
+  const countEl = document.getElementById('otp-stages-count');
+  if (countEl) countEl.textContent = container.querySelectorAll('.otp-stage-card').length;
+}
+
+function deleteOrthoPlanStageRow(btn) {
+  const card = btn.closest('.otp-stage-card');
+  if (card) {
+    card.remove();
+    recalcOrthoPlanDates();
+  }
+}
+
+function applyOrthoPlanDuration() {
+  const dur = Number((document.getElementById('otp-duration') || {}).value || 12);
+  const startDate = (document.getElementById('otp-start-date') || {}).value || todayISO();
+  const intervalDays = Number((document.getElementById('otp-interval') || {}).value || 28);
+  const container = document.getElementById('otp-stages-container');
+  if (!container) return;
+
+  const stages = createDefaultOrthoStages(dur);
+  container.innerHTML = stages.map((st, i) => renderOrthoPlanStageRowHtml(st, i + 1, startDate, intervalDays)).join('');
+  
+  const countEl = document.getElementById('otp-stages-count');
+  if (countEl) countEl.textContent = stages.length;
+}
+
+function recalcOrthoPlanDates() {
+  const startDate = (document.getElementById('otp-start-date') || {}).value || todayISO();
+  const intervalDays = Number((document.getElementById('otp-interval') || {}).value || 28);
+  const cards = document.querySelectorAll('.otp-stage-card');
+
+  cards.forEach((card, idx) => {
+    const stageNum = idx + 1;
+    const badge = card.querySelector('.badge-purple');
+    if (badge) badge.textContent = `Month / Stage ${stageNum}`;
+    const dateEl = card.querySelector('.otp-stage-date');
+    const targetDate = addDaysToDate(startDate, idx * intervalDays);
+    if (dateEl) dateEl.textContent = `📅 Est: ${fmtDate(targetDate)}`;
+  });
+
+  const countEl = document.getElementById('otp-stages-count');
+  if (countEl) countEl.textContent = cards.length;
+}
+
+async function saveOrthoPlanData(generateTimeline) {
+  const p = activePt;
+  if (!p) return;
+  const idx = DATA.patients.findIndex(x => x.id === p.id);
+  if (idx < 0) return;
+
+  const startDate = (document.getElementById('otp-start-date') || {}).value || todayISO();
+  const intervalDays = Number((document.getElementById('otp-interval') || {}).value || 28);
+  const estimatedMonths = Number((document.getElementById('otp-duration') || {}).value || 12);
+
+  const stageCards = document.querySelectorAll('.otp-stage-card');
+  const stages = [];
+
+  stageCards.forEach((card, i) => {
+    const upper = (card.querySelector('.otp-stage-wire-upper') || {}).value || '';
+    const lower = (card.querySelector('.otp-stage-wire-lower') || {}).value || '';
+    const obj = ((card.querySelector('.otp-stage-obj') || {}).value || '').trim();
+    const rem = ((card.querySelector('.otp-stage-rem') || {}).value || '').trim();
+    
+    const procs = [];
+    card.querySelectorAll('.otp-proc-chip').forEach(btn => {
+      if (btn.classList.contains('active') || btn.textContent.trim().startsWith('✓')) {
+        procs.push(btn.getAttribute('data-proc'));
+      }
+    });
+
+    stages.push({
+      stageNum: i + 1,
+      plannedWireUpper: upper,
+      plannedWireLower: lower,
+      plannedProcedures: procs,
+      clinicalObjective: obj,
+      remarks: rem
+    });
+  });
+
+  DATA.patients[idx].orthoTreatmentPlan = {
+    startDate: startDate,
+    intervalDays: intervalDays,
+    estimatedMonths: estimatedMonths,
+    stages: stages,
+    updatedAt: new Date().toISOString()
+  };
+
+  // Sync Start Date to orthoDetails if not set
+  if (!DATA.patients[idx].orthoDetails) DATA.patients[idx].orthoDetails = {};
+  if (!DATA.patients[idx].orthoDetails.startDate) {
+    DATA.patients[idx].orthoDetails.startDate = startDate;
+  }
+
+  if (generateTimeline) {
+    if (!DATA.patients[idx].orthoVisits) DATA.patients[idx].orthoVisits = [];
+    const currentVisits = DATA.patients[idx].orthoVisits.slice();
+
+    // Map stages to monthly visits
+    stages.forEach((st, i) => {
+      const stageDate = addDaysToDate(startDate, i * intervalDays);
+      
+      // Look for existing completed or pending visit for this stage
+      const existingIdx = currentVisits.findIndex(v => v.monthNum === st.stageNum);
+
+      if (existingIdx >= 0) {
+        // If visit is already completed, do NOT overwrite clinical actuals! Only update planned metadata
+        if (currentVisits[existingIdx].status === 'Completed') {
+          currentVisits[existingIdx].plannedWireUpper = st.plannedWireUpper;
+          currentVisits[existingIdx].plannedWireLower = st.plannedWireLower;
+          currentVisits[existingIdx].plannedProcedures = st.plannedProcedures;
+          currentVisits[existingIdx].clinicalObjective = st.clinicalObjective;
+          currentVisits[existingIdx].remarks = st.remarks;
+        } else {
+          // If pending, update planned target details
+          currentVisits[existingIdx].plannedDate = stageDate;
+          currentVisits[existingIdx].plannedWireUpper = st.plannedWireUpper;
+          currentVisits[existingIdx].plannedWireLower = st.plannedWireLower;
+          currentVisits[existingIdx].plannedProcedures = st.plannedProcedures;
+          currentVisits[existingIdx].clinicalObjective = st.clinicalObjective;
+          currentVisits[existingIdx].remarks = st.remarks;
+        }
+      } else {
+        // Create new pending visit card
+        currentVisits.push({
+          id: 'ov_plan_' + (st.stageNum) + '_' + Date.now().toString().slice(-4),
+          monthNum: st.stageNum,
+          status: 'Pending',
+          plannedDate: stageDate,
+          date: stageDate,
+          arch: 'Upper & Lower',
+          wireUpper: '',
+          wireLower: '',
+          plannedWireUpper: st.plannedWireUpper,
+          plannedWireLower: st.plannedWireLower,
+          plannedProcedures: st.plannedProcedures,
+          procedures: [],
+          amountPaid: 0,
+          notes: '',
+          clinicalObjective: st.clinicalObjective,
+          remarks: st.remarks,
+          nextAppt: '',
+          photos: [],
+          createdAt: new Date().toISOString()
+        });
+      }
+    });
+
+    DATA.patients[idx].orthoVisits = currentVisits;
+  }
+
+  activePt = DATA.patients[idx];
+  await saveData();
+
+  closeOrthoModal();
+  renderOrthoDetailTab();
+  alert(generateTimeline ? '✅ Orthodontic Treatment Plan saved and timeline generated!' : '✅ Orthodontic Treatment Plan draft saved!');
+}
+
+/* ══════════════════════════════════════════════════════
+   DELAY MANAGEMENT: SHIFT FUTURE TIMELINE
+══════════════════════════════════════════════════════ */
+function showShiftFutureTimelineModal() {
+  const p = activePt;
+  if (!p) return;
+  const visits = p.orthoVisits || [];
+  const plan = p.orthoTreatmentPlan || {};
+  const intervalDays = Number(plan.intervalDays || 28);
+
+  // Filter pending visits sorted chronologically
+  const pendingVisits = visits.filter(v => v.status === 'Pending').sort((a, b) => {
+    return (a.plannedDate || a.date || '').localeCompare(b.plannedDate || b.date || '');
+  });
+
+  if (pendingVisits.length === 0) {
+    alert('No pending future visits found to shift. All logged visits are already marked as completed.');
+    return;
+  }
+
+  closeOrthoModal();
+
+  const firstPending = pendingVisits[0];
+  const firstPendingDate = firstPending.plannedDate || firstPending.date || todayISO();
+
+  const modalOverlay = document.createElement('div');
+  modalOverlay.id = 'ortho-modal-overlay';
+  modalOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px);box-sizing:border-box';
+
+  modalOverlay.innerHTML = `
+    <div class="card card-body" style="width:100%;max-width:620px;max-height:90vh;overflow-y:auto;background:#ffffff;border-radius:14px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.25);border:1px solid #e2e8f0;padding:20px;box-sizing:border-box" onclick="event.stopPropagation()">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1.5px solid #f1f5f9">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:#d97706;display:flex;align-items:center;gap:6px">
+            <span>⏩</span>
+            <span>Shift Future Treatment Timeline</span>
+          </div>
+          <div style="font-size:12px;color:#64748b;margin-top:2px">Manage appointment delays without changing previous completed visits</div>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" style="font-size:16px;line-height:1;padding:4px 8px" onclick="closeOrthoModal()">✕</button>
+      </div>
+
+      <div class="alert-box" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 12px;border-radius:8px;font-size:12px;margin-bottom:14px">
+        ℹ️ <strong>Delay Management:</strong> Recalculate remaining <strong>${pendingVisits.length} pending appointment(s)</strong> starting from <strong>Month ${firstPending.monthNum}</strong>.
+      </div>
+
+      <div class="form-grid-2" style="margin-bottom:14px">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-weight:700">New Date for Month ${firstPending.monthNum}</label>
+          <input class="form-input" id="sft-new-date" type="date" value="${firstPendingDate}" onchange="previewShiftFutureDates()"/>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-weight:700">Or Add Delay (Days)</label>
+          <div style="display:flex;gap:6px">
+            ${[7, 14, 21, 28].map(d => `
+              <button type="button" class="btn btn-ghost btn-sm" style="background:#f1f5f9;font-size:11px;padding:4px 8px" onclick="applyShiftDays(${d})">+${d}d</button>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview comparison -->
+      <div style="margin-bottom:16px">
+        <label class="form-label" style="font-weight:700">Upcoming Visits Reschedule Preview</label>
+        <div id="sft-preview-table" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;max-height:220px;overflow-y:auto;font-size:12px">
+          <!-- Populated by previewShiftFutureDates -->
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div style="display:flex;gap:10px;justify-content:flex-end;padding-top:12px;border-top:1px solid #f1f5f9">
+        <button type="button" class="btn btn-ghost" onclick="closeOrthoModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" style="background:#d97706;border:none;font-weight:700" onclick="confirmShiftFutureTimeline()">⏩ Confirm &amp; Shift Timeline</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modalOverlay);
+  previewShiftFutureDates();
+}
+
+function applyShiftDays(days) {
+  const dateInput = document.getElementById('sft-new-date');
+  if (!dateInput) return;
+  const current = dateInput.value || todayISO();
+  dateInput.value = addDaysToDate(current, days);
+  previewShiftFutureDates();
+}
+
+function previewShiftFutureDates() {
+  const p = activePt;
+  if (!p) return;
+  const visits = p.orthoVisits || [];
+  const plan = p.orthoTreatmentPlan || {};
+  const intervalDays = Number(plan.intervalDays || 28);
+
+  const pendingVisits = visits.filter(v => v.status === 'Pending').sort((a, b) => {
+    return (a.plannedDate || a.date || '').localeCompare(b.plannedDate || b.date || '');
+  });
+
+  const newStartDate = (document.getElementById('sft-new-date') || {}).value || todayISO();
+  const previewEl = document.getElementById('sft-preview-table');
+  if (!previewEl) return;
+
+  previewEl.innerHTML = `
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:1px solid #cbd5e1;color:#64748b;font-size:11px">
+          <th style="text-align:left;padding:4px">Stage</th>
+          <th style="text-align:left;padding:4px">Current Planned</th>
+          <th style="text-align:left;padding:4px">New Rescheduled Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${pendingVisits.map((v, i) => {
+          const oldDate = v.plannedDate || v.date;
+          const newDate = addDaysToDate(newStartDate, i * intervalDays);
+          return `
+            <tr style="border-bottom:1px solid #f1f5f9">
+              <td style="padding:6px 4px;font-weight:700">Month ${v.monthNum}</td>
+              <td style="padding:6px 4px;color:#94a3b8;text-decoration:line-through">${fmtDate(oldDate)}</td>
+              <td style="padding:6px 4px;color:#d97706;font-weight:700">➡️ ${fmtDate(newDate)}</td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function confirmShiftFutureTimeline() {
+  const p = activePt;
+  if (!p) return;
+  const idx = DATA.patients.findIndex(x => x.id === p.id);
+  if (idx < 0) return;
+
+  const plan = p.orthoTreatmentPlan || {};
+  const intervalDays = Number(plan.intervalDays || 28);
+  const newStartDate = (document.getElementById('sft-new-date') || {}).value || todayISO();
+
+  const visits = DATA.patients[idx].orthoVisits || [];
+  const pendingVisits = visits.filter(v => v.status === 'Pending').sort((a, b) => {
+    return (a.plannedDate || a.date || '').localeCompare(b.plannedDate || b.date || '');
+  });
+
+  pendingVisits.forEach((v, i) => {
+    const newDate = addDaysToDate(newStartDate, i * intervalDays);
+    v.plannedDate = newDate;
+    v.date = newDate;
+  });
+
+  activePt = DATA.patients[idx];
+  await saveData();
+
+  closeOrthoModal();
+  renderOrthoDetailTab();
+  alert('✅ Future orthodontic timeline successfully shifted!');
+}
+
+/* ══════════════════════════════════════════════════════
+   VISIT MODAL (PLANNED VS ACTUAL FOLLOW-UP)
+══════════════════════════════════════════════════════ */
+function showOrthoMonthlyVisitModal(visitId) {
+  const p = activePt;
+  if (!p) return;
+  const visits = p.orthoVisits || [];
+  const plan = p.orthoTreatmentPlan || {};
+  const intervalDays = Number(plan.intervalDays || 28);
+  
+  // Clean visitId parameter
+  const targetId = (visitId && visitId !== 'undefined' && visitId !== 'null') ? String(visitId) : '';
+  const existing = targetId ? visits.find(v => String(v.id) === targetId) : null;
+  const isEdit = !!existing;
+  const isPending = existing ? existing.status === 'Pending' : false;
+
+  const dateVal = existing ? (existing.date || existing.plannedDate || todayISO()) : todayISO();
+  const archVal = existing ? (existing.arch || 'Upper & Lower') : 'Upper & Lower';
+  
+  // Preload actual wires or fallback to planned wires
+  const wireUpperVal = existing ? (existing.wireUpper || existing.wire || existing.plannedWireUpper || '') : '';
+  const wireLowerVal = existing ? (existing.wireLower || existing.plannedWireLower || '') : '';
+  
+  // Robust procedure extraction (actual or fallback to planned)
+  let selectedProcs = [];
+  if (existing) {
+    if (Array.isArray(existing.procedures) && existing.procedures.length > 0) {
+      selectedProcs = existing.procedures.slice();
+    } else if (Array.isArray(existing.plannedProcedures) && existing.plannedProcedures.length > 0) {
+      selectedProcs = existing.plannedProcedures.slice();
+    } else if (typeof existing.procedures === 'string' && existing.procedures) {
+      selectedProcs = existing.procedures.split(',').map(s => s.trim());
+    } else if (typeof existing.procedure === 'string' && existing.procedure) {
+      selectedProcs = existing.procedure.split(',').map(s => s.trim());
     }
-  },100);
+  }
+
+  const amountVal = existing ? (existing.amountPaid !== undefined && existing.amountPaid !== null && existing.amountPaid !== 0 ? existing.amountPaid : (existing.paid || '')) : '';
+  const notesVal = existing ? (existing.notes || '') : '';
+  const nextApptVal = existing ? (existing.nextAppt || (isPending ? addDaysToDate(dateVal, intervalDays) : '')) : addDaysToDate(todayISO(), intervalDays);
+  const photosList = existing && Array.isArray(existing.photos) ? existing.photos.slice() : (existing && existing.photos ? [existing.photos] : []);
+
+  const monthNumDisplay = existing ? (existing.monthNum || 1) : (visits.length + 1);
+
+  // Planned target details
+  const hasPlannedDetails = existing && (existing.plannedWireUpper || existing.plannedWireLower || (existing.plannedProcedures && existing.plannedProcedures.length) || existing.clinicalObjective);
+
+  closeOrthoModal();
+
+  const modalOverlay = document.createElement('div');
+  modalOverlay.id = 'ortho-modal-overlay';
+  modalOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px);box-sizing:border-box';
+  
+  modalOverlay.innerHTML = `
+    <div class="card card-body" style="width:100%;max-width:680px;max-height:90vh;overflow-y:auto;background:#ffffff;border-radius:14px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2),0 10px 10px -5px rgba(0,0,0,0.1);border:1px solid #e2e8f0;padding:20px;box-sizing:border-box" onclick="event.stopPropagation()">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1.5px solid #f1f5f9">
+        <div style="font-size:16px;font-weight:800;color:#7c3aed;display:flex;align-items:center;gap:6px">
+          <span>${isPending ? '📝' : (isEdit ? '✏️' : '➕')}</span>
+          <span>${isPending ? `Record Follow-up (Month ${monthNumDisplay})` : (isEdit ? `Edit Monthly Visit (Month ${monthNumDisplay})` : `New Monthly Visit (Month ${monthNumDisplay})`)}</span>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" style="font-size:16px;line-height:1;padding:4px 8px" onclick="closeOrthoModal()">✕</button>
+      </div>
+
+      <!-- Planned vs Actual Target Comparison Box -->
+      ${hasPlannedDetails ? `
+        <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px">
+          <div style="font-weight:800;color:#6b21a8;margin-bottom:4px">🎯 Planned Targets for this Stage:</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;color:#475569">
+            <div><strong>Planned Upper:</strong> ${esc(existing.plannedWireUpper || '-')}</div>
+            <div><strong>Planned Lower:</strong> ${esc(existing.plannedWireLower || '-')}</div>
+            <div><strong>Planned Procedure:</strong> ${esc((existing.plannedProcedures || []).join(', ') || 'None')}</div>
+            <div><strong>Objective:</strong> ${esc(existing.clinicalObjective || '-')}</div>
+          </div>
+          ${existing.remarks ? `<div style="margin-top:4px;color:#7e22ce"><strong>Instructions:</strong> ${esc(existing.remarks)}</div>` : ''}
+        </div>
+      ` : ''}
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label" style="font-weight:600">Visit Date <span style="color:#dc2626">*</span></label>
+          <input class="form-input" id="ovm-date" type="date" value="${dateVal}"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="font-weight:600">Arch</label>
+          <select class="form-input" id="ovm-arch">
+            <option value="Upper & Lower" ${archVal === 'Upper & Lower' || archVal === 'Both' ? 'selected' : ''}>Upper &amp; Lower</option>
+            <option value="Upper" ${archVal === 'Upper' ? 'selected' : ''}>Upper Arch</option>
+            <option value="Lower" ${archVal === 'Lower' ? 'selected' : ''}>Lower Arch</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="font-weight:600">Actual Wire Upper (dropdown)</label>
+          <select class="form-input" id="ovm-wire-upper">
+            <option value="">None / No Wire</option>
+            ${ORTHO_WIRES_LIST.map(w => `<option value="${w}" ${wireUpperVal.toLowerCase().replace(/\s/g,'') === w.toLowerCase().replace(/\s/g,'') ? 'selected' : ''}>${w}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="font-weight:600">Actual Wire Lower (dropdown)</label>
+          <select class="form-input" id="ovm-wire-lower">
+            <option value="">None / No Wire</option>
+            ${ORTHO_WIRES_LIST.map(w => `<option value="${w}" ${wireLowerVal.toLowerCase().replace(/\s/g,'') === w.toLowerCase().replace(/\s/g,'') ? 'selected' : ''}>${w}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <!-- Procedure Multi-Select -->
+      <div class="form-group" style="margin-bottom:14px">
+        <label class="form-label" style="font-weight:600">Procedures Done <span style="font-size:11px;font-weight:normal;color:#64748b">(click tags to select multiple)</span></label>
+        <div id="ovm-proc-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+          ${ORTHO_PROCEDURES_LIST.map(pr => {
+            const active = selectedProcs.some(sp => sp.toLowerCase() === pr.toLowerCase() || sp.toLowerCase().includes(pr.toLowerCase()));
+            return `<button type="button" class="btn btn-sm ovm-proc-chip ${active ? 'active' : ''}" data-proc="${pr}" style="${active ? 'background:#7c3aed;color:#ffffff;border:1px solid #6d28d9;' : 'background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;'};font-size:11px;padding:5px 12px;border-radius:99px;cursor:pointer;font-weight:600" onclick="toggleOrthoProcChip(this, '${pr}')">${active ? '✓ ' : ''}${pr}</button>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- Financials for this visit -->
+      <div class="form-grid-2" style="margin-bottom:12px">
+        <div class="form-group">
+          <label class="form-label" style="font-weight:600">Amount Paid (₹)</label>
+          <input class="form-input" id="ovm-amount" type="number" min="0" value="${amountVal}" placeholder="e.g. 1200" oninput="recalcOrthoModalBalance('${targetId}')"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="font-weight:600">Balance After Payment (auto)</label>
+          <input class="form-input" id="ovm-balance" type="text" readonly style="background:#f8fafc;font-weight:700;color:#059669" value="Calculating..."/>
+        </div>
+      </div>
+
+      <!-- Clinical Notes -->
+      <div class="form-group" style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <label class="form-label" style="margin:0;font-weight:600">Clinical Notes</label>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            ${['Good progress', 'Hygiene advised', 'Space closure', 'Aligning', 'Elastics wear advised'].map(qn => `
+              <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px;background:#f1f5f9" onclick="appendOrthoModalNote('${qn}')">+${qn}</button>
+            `).join('')}
+          </div>
+        </div>
+        <textarea class="form-input" id="ovm-notes" rows="2" placeholder="Clinical observations, wire engagement, hygiene instructions...">${esc(notesVal)}</textarea>
+      </div>
+
+      <div class="form-grid-2" style="margin-bottom:14px">
+        <div class="form-group">
+          <label class="form-label" style="font-weight:600">Next Appointment Date</label>
+          <input class="form-input" id="ovm-next-appt" type="date" value="${nextApptVal}"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="font-weight:600">Upload Photos (optional)</label>
+          <input class="form-input" type="file" id="ovm-photo-input" accept="image/*" multiple onchange="handleOrthoModalPhotoUpload(this)"/>
+          <div id="ovm-photos-preview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div style="display:flex;gap:10px;margin-top:10px">
+        <button type="button" class="btn btn-primary" style="flex:1;padding:10px 16px;font-size:14px;font-weight:700" onclick="saveOrthoMonthlyVisit('${targetId}')">
+          💾 ${isPending ? '✅ Complete & Save Visit' : (isEdit ? 'Update Monthly Visit' : 'Save Monthly Visit')}
+        </button>
+        <button type="button" class="btn btn-ghost" style="padding:10px 16px" onclick="closeOrthoModal()">Cancel</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modalOverlay);
+
+  window._orthoModalPhotos = photosList.slice();
+  renderOrthoModalPhotoPreviews();
+  recalcOrthoModalBalance(targetId);
 }
-function updateOrtho(field,val){
-  const idx=DATA.patients.findIndex(p=>p.id===activePt.id);
-  DATA.patients[idx].orthoDetails={...(DATA.patients[idx].orthoDetails||{}),[field]:val};
-  activePt=DATA.patients[idx]; saveData();
+
+function toggleOrthoProcChip(btn, procName) {
+  const isSelected = btn.classList.contains('active') || btn.textContent.trim().startsWith('✓');
+  if (isSelected) {
+    btn.classList.remove('active');
+    btn.textContent = procName;
+    btn.style.background = '#f1f5f9';
+    btn.style.color = '#334155';
+    btn.style.borderColor = '#cbd5e1';
+  } else {
+    btn.classList.add('active');
+    btn.textContent = '✓ ' + procName;
+    btn.style.background = '#7c3aed';
+    btn.style.color = '#ffffff';
+    btn.style.borderColor = '#6d28d9';
+  }
 }
+
+function recalcOrthoModalBalance(currentVisitId) {
+  const p = activePt;
+  if (!p) return;
+  const od = p.orthoDetails || {};
+  const totalCost = Number(od.totalCost || 0);
+  const visits = p.orthoVisits || [];
+  
+  let otherPaid = 0;
+  visits.forEach(v => {
+    if (String(v.id) !== String(currentVisitId)) {
+      otherPaid += Number(v.amountPaid || v.paid || 0);
+    }
+  });
+
+  const currAmt = Number((document.getElementById('ovm-amount') || {}).value || 0);
+  const totalPaidAfter = otherPaid + currAmt;
+  const bal = Math.max(0, totalCost - totalPaidAfter);
+
+  const balEl = document.getElementById('ovm-balance');
+  if (balEl) {
+    balEl.value = fmtMoney(bal);
+  }
+}
+
+function appendOrthoModalNote(text) {
+  const ta = document.getElementById('ovm-notes');
+  if (ta) {
+    ta.value = (ta.value ? ta.value + '; ' : '') + text;
+  }
+}
+
+function handleOrthoModalPhotoUpload(input) {
+  if (!input.files || input.files.length === 0) return;
+  window._orthoModalPhotos = window._orthoModalPhotos || [];
+  
+  Array.from(input.files).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const img = new Image();
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        const max = 800;
+        const ratio = Math.min(max / img.width, max / img.height, 1);
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+
+        if (typeof uploadToCloudinary === 'function') {
+          uploadToCloudinary(dataUrl)
+            .then(secUrl => {
+              window._orthoModalPhotos.push(secUrl);
+              renderOrthoModalPhotoPreviews();
+            })
+            .catch(() => {
+              window._orthoModalPhotos.push(dataUrl);
+              renderOrthoModalPhotoPreviews();
+            });
+        } else {
+          window._orthoModalPhotos.push(dataUrl);
+          renderOrthoModalPhotoPreviews();
+        }
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderOrthoModalPhotoPreviews() {
+  const cont = document.getElementById('ovm-photos-preview');
+  if (!cont) return;
+  const list = window._orthoModalPhotos || [];
+  cont.innerHTML = list.map((ph, idx) => `
+    <div style="position:relative;width:54px;height:54px;border-radius:6px;overflow:hidden;border:1px solid #cbd5e1">
+      <img src="${typeof ph === 'string' ? ph : (ph.url || '')}" style="width:100%;height:100%;object-fit:cover" />
+      <button type="button" style="position:absolute;top:2px;right:2px;background:rgba(220,38,38,0.85);color:#fff;border:none;border-radius:99px;width:16px;height:16px;font-size:10px;cursor:pointer;line-height:1" onclick="removeOrthoModalPhoto(${idx})">×</button>
+    </div>
+  `).join('');
+}
+
+function removeOrthoModalPhoto(idx) {
+  if (window._orthoModalPhotos) {
+    window._orthoModalPhotos.splice(idx, 1);
+    renderOrthoModalPhotoPreviews();
+  }
+}
+
+function orthoVisit_viewPhoto(url) {
+  const lb = document.getElementById('lightbox');
+  if (lb) {
+    lb.style.display = 'flex';
+    const lbImg = document.getElementById('lb-img');
+    const lbCap = document.getElementById('lb-caption');
+    if (lbImg) lbImg.src = url;
+    if (lbCap) lbCap.textContent = 'Orthodontic Visit Photo';
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+async function saveOrthoMonthlyVisit(visitId) {
+  const p = activePt;
+  if (!p) return;
+  const idx = DATA.patients.findIndex(x => x.id === p.id);
+  if (idx < 0) return;
+
+  const dateVal = (document.getElementById('ovm-date') || {}).value || todayISO();
+  const archVal = (document.getElementById('ovm-arch') || {}).value || 'Upper & Lower';
+  const wireUpperVal = (document.getElementById('ovm-wire-upper') || {}).value || '';
+  const wireLowerVal = (document.getElementById('ovm-wire-lower') || {}).value || '';
+  
+  // Gather selected procedures
+  const selectedProcs = [];
+  document.querySelectorAll('#ovm-proc-chips .ovm-proc-chip').forEach(btn => {
+    if (btn.classList.contains('active') || btn.textContent.trim().startsWith('✓')) {
+      selectedProcs.push(btn.getAttribute('data-proc'));
+    }
+  });
+
+  const amountVal = Number((document.getElementById('ovm-amount') || {}).value || 0);
+  const notesVal = ((document.getElementById('ovm-notes') || {}).value || '').trim();
+  const nextApptVal = (document.getElementById('ovm-next-appt') || {}).value || '';
+
+  if (!DATA.patients[idx].orthoVisits) {
+    DATA.patients[idx].orthoVisits = [];
+  }
+
+  const targetId = (visitId && visitId !== 'undefined' && visitId !== 'null') ? String(visitId) : '';
+
+  if (targetId) {
+    // Edit existing visit - do not overwrite other visits
+    const vIdx = DATA.patients[idx].orthoVisits.findIndex(v => String(v.id) === targetId);
+    if (vIdx >= 0) {
+      DATA.patients[idx].orthoVisits[vIdx] = {
+        ...DATA.patients[idx].orthoVisits[vIdx],
+        status: 'Completed', // Mark status completed upon recording follow-up
+        date: dateVal,
+        arch: archVal,
+        wireUpper: wireUpperVal,
+        wireLower: wireLowerVal,
+        procedures: selectedProcs,
+        amountPaid: amountVal,
+        notes: notesVal,
+        nextAppt: nextApptVal,
+        photos: (window._orthoModalPhotos || []).slice(),
+        updatedAt: new Date().toISOString()
+      };
+    } else {
+      // If id not found, push as new
+      DATA.patients[idx].orthoVisits.push({
+        id: targetId || ('ov_' + Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5)),
+        status: 'Completed',
+        date: dateVal,
+        arch: archVal,
+        wireUpper: wireUpperVal,
+        wireLower: wireLowerVal,
+        procedures: selectedProcs,
+        amountPaid: amountVal,
+        notes: notesVal,
+        nextAppt: nextApptVal,
+        photos: (window._orthoModalPhotos || []).slice(),
+        createdAt: new Date().toISOString()
+      });
+    }
+  } else {
+    // Create new visit record
+    const newVisit = {
+      id: 'ov_' + Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5),
+      status: 'Completed',
+      date: dateVal,
+      arch: archVal,
+      wireUpper: wireUpperVal,
+      wireLower: wireLowerVal,
+      procedures: selectedProcs,
+      amountPaid: amountVal,
+      notes: notesVal,
+      nextAppt: nextApptVal,
+      photos: (window._orthoModalPhotos || []).slice(),
+      createdAt: new Date().toISOString()
+    };
+    DATA.patients[idx].orthoVisits.push(newVisit);
+  }
+
+  // Update total paid and next appt on patient's orthoDetails
+  const totalPaid = DATA.patients[idx].orthoVisits.reduce((sum, v) => sum + Number(v.amountPaid || v.paid || 0), 0);
+  DATA.patients[idx].orthoDetails = {
+    ...(DATA.patients[idx].orthoDetails || {}),
+    paidAmount: totalPaid
+  };
+  if (nextApptVal) {
+    DATA.patients[idx].orthoDetails.nextAppt = nextApptVal;
+  }
+
+  activePt = DATA.patients[idx];
+  await saveData();
+
+  closeOrthoModal();
+  renderOrthoDetailTab();
+}
+
+async function deleteOrthoMonthlyVisit(visitId) {
+  if (!confirm('Are you sure you want to delete this monthly orthodontic visit record?')) return;
+  const p = activePt;
+  if (!p) return;
+  const idx = DATA.patients.findIndex(x => x.id === p.id);
+  if (idx < 0) return;
+
+  const targetId = String(visitId);
+  DATA.patients[idx].orthoVisits = (DATA.patients[idx].orthoVisits || []).filter(v => String(v.id) !== targetId);
+  
+  // Recalculate total paid
+  const totalPaid = DATA.patients[idx].orthoVisits.reduce((sum, v) => sum + Number(v.amountPaid || v.paid || 0), 0);
+  DATA.patients[idx].orthoDetails = {
+    ...(DATA.patients[idx].orthoDetails || {}),
+    paidAmount: totalPaid
+  };
+
+  activePt = DATA.patients[idx];
+  await saveData();
+  renderOrthoDetailTab();
+}
+
+function updateOrthoFixedField(field, val) {
+  const p = activePt;
+  if (!p) return;
+  const idx = DATA.patients.findIndex(x => x.id === p.id);
+  if (idx < 0) return;
+  DATA.patients[idx].orthoDetails = {
+    ...(DATA.patients[idx].orthoDetails || {}),
+    [field]: val
+  };
+  activePt = DATA.patients[idx];
+  saveData();
+  renderOrthoDetailTab();
+}
+
+function updateOrtho(field, val) {
+  updateOrthoFixedField(field, val);
+}
+
+function convertPatientToOrtho(patientId) {
+  const idx = DATA.patients.findIndex(p => p.id === patientId);
+  if (idx < 0) return;
+  DATA.patients[idx].type = 'ortho';
+  if (!DATA.patients[idx].orthoDetails) {
+    DATA.patients[idx].orthoDetails = {
+      startDate: todayISO(),
+      bracket: 'Metal Braces',
+      totalCost: 35000,
+      paidAmount: 0
+    };
+  }
+  activePt = DATA.patients[idx];
+  saveData();
+  renderOrthoDetailTab();
+}
+
 /* ── SEND APPT WA (FIXED) ── */
-function sendApptWA(){
-  const p=activePt; const od=p.orthoDetails||{};
-  if(!od.nextAppt){alert('Please set appointment date first.');return}
-  const tmpl=DATA.waTemplate||DEFAULT_WA_TEMPLATE;
-  const fmt12hr=t=>{if(!t)return'';const[hh,mm]=t.split(':').map(Number);const ampm=hh>=12?'PM':'AM';return((hh%12)||12)+':'+String(mm).padStart(2,'0')+' '+ampm;};
-  const msg=tmpl.replace(/{name}/g,p.name).replace(/{date}/g,fmtDate(od.nextAppt)).replace(/{time}/g,fmt12hr(od.nextApptTime||'10:00')).replace(/{doctor}/g,DOCTOR).replace(/{clinic}/g,CLINIC).replace(/{phone}/g,PHONE);
-  window.open('https://wa.me/91'+p.phone+'?text='+encodeURIComponent(msg),'_blank');
+function sendApptWA() {
+  const p = activePt;
+  if (!p) return;
+  const od = p.orthoDetails || {};
+  const visits = p.orthoVisits || [];
+  const latestApptVisit = visits.slice().reverse().find(v => !!v.nextAppt);
+  const apptDate = (latestApptVisit ? latestApptVisit.nextAppt : '') || od.nextAppt;
+  if (!apptDate) { alert('Please set next appointment date first.'); return; }
+  const tmpl = DATA.waTemplate || DEFAULT_WA_TEMPLATE;
+  const fmt12hr = t => { if (!t) return ''; const [hh, mm] = t.split(':').map(Number); const ampm = hh >= 12 ? 'PM' : 'AM'; return ((hh % 12) || 12) + ':' + String(mm).padStart(2, '0') + ' ' + ampm; };
+  const msg = tmpl.replace(/{name}/g, p.name).replace(/{date}/g, fmtDate(apptDate)).replace(/{time}/g, fmt12hr(od.nextApptTime || '10:00')).replace(/{doctor}/g, DOCTOR).replace(/{clinic}/g, CLINIC).replace(/{phone}/g, PHONE);
+  window.open('https://wa.me/91' + p.phone.replace(/\D/g, '') + '?text=' + encodeURIComponent(msg), '_blank');
+}
+
+/* ── PRINTABLE ORTHODONTIC PROGRESS SHEET ── */
+function printOrthoProgressSheet(patientId) {
+  const p = (DATA.patients || []).find(x => x.id === patientId) || activePt;
+  if (!p) { alert('Patient not found.'); return; }
+  const od = p.orthoDetails || {};
+  const fin = getOrthoFinancials(p);
+  const visits = (p.orthoVisits || []).slice();
+
+  // Sort chronological for report (oldest to newest)
+  const chronological = visits.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  let cumulative = 0;
+  chronological.forEach((v, idx) => {
+    v.monthNum = idx + 1;
+    cumulative += Number(v.amountPaid || v.paid || 0);
+    v.cumulativePaid = cumulative;
+    v.balanceAfter = Math.max(0, fin.totalCost - cumulative);
+  });
+
+  const rowsHtml = chronological.length === 0
+    ? `<tr><td colspan="10" style="text-align:center;padding:24px;color:#64748b">No monthly orthodontic treatment visits logged yet.</td></tr>`
+    : chronological.map(v => {
+        const procs = Array.isArray(v.procedures) ? v.procedures.join(', ') : (v.procedures || v.procedure || '-');
+        return `
+          <tr style="border-bottom:1px solid #e2e8f0;font-size:12px">
+            <td style="padding:8px 6px;font-weight:700;text-align:center">Month ${v.monthNum}</td>
+            <td style="padding:8px 6px;white-space:nowrap">${fmtDate(v.date)}</td>
+            <td style="padding:8px 6px">${esc(v.arch || 'Both')}</td>
+            <td style="padding:8px 6px;font-weight:600">${esc(v.wireUpper || v.wire || '-')}</td>
+            <td style="padding:8px 6px;font-weight:600">${esc(v.wireLower || '-')}</td>
+            <td style="padding:8px 6px">${esc(procs)}</td>
+            <td style="padding:8px 6px;text-align:right;font-weight:700;color:#059669">Rs. ${Number(v.amountPaid || v.paid || 0).toLocaleString('en-IN')}</td>
+            <td style="padding:8px 6px;text-align:right;color:#64748b">Rs. ${Number(v.balanceAfter || 0).toLocaleString('en-IN')}</td>
+            <td style="padding:8px 6px;white-space:nowrap">${v.nextAppt ? fmtDate(v.nextAppt) : '-'}</td>
+            <td style="padding:8px 6px;font-size:11px">${esc(v.notes || '-')}</td>
+          </tr>
+        `;
+      }).join('');
+
+  const printHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Orthodontic Progress Sheet - ${esc(p.name)}</title>
+      <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; margin: 20px; line-height: 1.4; }
+        .header { text-align: center; border-bottom: 2px solid #7c3aed; padding-bottom: 12px; margin-bottom: 16px; }
+        .clinic-name { font-size: 20px; font-weight: 800; color: #1e3a5f; text-transform: uppercase; }
+        .doc-name { font-size: 14px; font-weight: 700; color: #7c3aed; margin-top: 2px; }
+        .doc-qual { font-size: 11px; color: #64748b; }
+        .sheet-title { font-size: 15px; font-weight: 800; text-transform: uppercase; background: #f5f3ff; color: #7c3aed; padding: 6px 14px; border-radius: 6px; display: inline-block; margin: 12px 0 6px; border: 1px solid #ddd6fe; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 12px; }
+        .info-row { margin-bottom: 4px; }
+        .info-label { font-weight: 700; color: #475569; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { background: #7c3aed; color: #ffffff; font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 8px 6px; text-align: left; }
+        .footer { margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 12px; }
+        .sig-box { text-align: center; border-top: 1px solid #334155; width: 180px; padding-top: 4px; font-weight: 700; }
+        @media print {
+          body { margin: 10mm; }
+          .no-print { display: none !important; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="no-print" style="margin-bottom:16px;text-align:right">
+        <button onclick="window.print()" style="background:#7c3aed;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:700">🖨️ Print Sheet</button>
+      </div>
+
+      <div class="header">
+        <div class="clinic-name">${esc(CLINIC)}</div>
+        <div class="doc-name">${esc(DOCTOR)} &bull; Reg: ${esc(REG)}</div>
+        <div class="doc-qual">${esc(QUAL)}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px">${esc(CITY)} &bull; Phone: ${esc(PHONE)}</div>
+        <div class="sheet-title">Orthodontic Treatment Progress Sheet</div>
+      </div>
+
+      <div class="info-grid">
+        <div>
+          <div class="info-row"><span class="info-label">Patient Name:</span> <strong>${esc(p.name)}</strong></div>
+          <div class="info-row"><span class="info-label">Patient ID:</span> ${esc(p.id)} &bull; <span class="info-label">Age/Gender:</span> ${p.age}y / ${esc(p.gender || '-')}</div>
+          <div class="info-row"><span class="info-label">Phone:</span> ${esc(p.phone || '-')}</div>
+        </div>
+        <div>
+          <div class="info-row"><span class="info-label">Start Date:</span> ${fmtDate(od.startDate || p.createdAt)}</div>
+          <div class="info-row"><span class="info-label">Bracket Type:</span> <strong>${esc(od.bracket || 'Standard Braces')}</strong></div>
+          <div class="info-row">
+            <span class="info-label">Total Cost:</span> ${fmtMoney(fin.totalCost)} &bull; 
+            <span class="info-label">Paid:</span> ${fmtMoney(fin.totalPaid)} &bull; 
+            <span class="info-label" style="color:#dc2626">Due:</span> ${fmtMoney(fin.dueAmount)}
+          </div>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align:center">Visit</th>
+            <th>Date</th>
+            <th>Arch</th>
+            <th>Upper Wire</th>
+            <th>Lower Wire</th>
+            <th>Procedure(s)</th>
+            <th style="text-align:right">Paid</th>
+            <th style="text-align:right">Balance</th>
+            <th>Next Appt</th>
+            <th>Clinical Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+
+      <div class="footer">
+        <div>
+          <div>Date Generated: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+          <div style="font-size:10px;color:#94a3b8">The Home Of Smiles Practice Management System</div>
+        </div>
+        <div class="sig-box">
+          Dr. Tanmay Jain<br/><span style="font-size:10px;font-weight:normal">Doctor's Signature</span>
+        </div>
+      </div>
+
+      <script>
+        window.onload = function() {
+          window.print();
+          window.onafterprint = function() { window.close(); };
+        };
+      </script>
+    </body>
+    </html>
+  `;
+
+  const win = window.open('', '_blank', 'width=900,height=700');
+  if (win) {
+    win.document.open();
+    win.document.write(printHtml);
+    win.document.close();
+  } else {
+    alert('Please allow popups to view/print the Orthodontic Progress Sheet.');
+  }
 }
 
 /* ══════════════════════════════════════════════════════
    ORTHO PATIENTS PAGE
 ══════════════════════════════════════════════════════ */
 function renderOrthoList(){
-  const orthos=(DATA.patients||[]).filter(p=>p.type==='ortho');
+  const orthos=(DATA.patients||[]).filter(p=>p.type==='ortho'||(p.type||'').toLowerCase().includes('ortho'));
   document.getElementById('ortho-list').innerHTML=orthos.length===0?`<div class="empty" style="border:1px solid #e2e8f0;border-radius:14px"><span class="empty-icon">🦷</span><div class="empty-title">No ortho patients yet</div></div>`
   :orthos.map(p=>{
     const od=p.orthoDetails||{};
-    const total=Number(od.totalCost||0),paid=Number(od.paidAmount||0),due=total-paid;
-    const prog=total>0?Math.min(100,(paid/total)*100):0;
-    const hasAppt=od.nextAppt;
+    const fin=getOrthoFinancials(p);
+    const total=fin.totalCost, paid=fin.totalPaid, due=fin.dueAmount, prog=fin.progress;
+    const visits = p.orthoVisits || [];
+    const latestApptVisit = visits.slice().reverse().find(v => !!v.nextAppt);
+    const hasAppt = (latestApptVisit ? latestApptVisit.nextAppt : '') || od.nextAppt;
     const fmt12hr=t=>{if(!t)return'-';const[hh,mm]=t.split(':').map(Number);const ampm=hh>=12?'PM':'AM';return((hh%12)||12)+':'+String(mm).padStart(2,'0')+' '+ampm;};
     return`<div class="appt-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:12px">
         <div style="display:flex;gap:10px;align-items:center">
-          <div class="avatar" style="width:42px;height:42px;background:linear-gradient(135deg,#7c3aed,#0ea5e9);font-size:16px">${p.name[0]}</div>
+          <div class="avatar" style="width:42px;height:42px;background:linear-gradient(135deg,#7c3aed,#0ea5e9);font-size:16px">${(p.name||'P')[0]}</div>
           <div>
             <div style="font-weight:700;font-size:15px;color:#1e293b">${esc(p.name)}</div>
             <div style="font-size:12px;color:#64748b">${p.age}y | ${p.phone}</div>
-            <div style="font-size:11px;color:#7c3aed;font-weight:600;margin-top:2px">${od.bracket||'-'}</div>
+            <div style="font-size:11px;color:#7c3aed;font-weight:600;margin-top:2px">${od.bracket||'Orthodontic'}${visits.length ? ` &bull; ${visits.length} Visit${visits.length===1?'':'s'}` : ''}</div>
           </div>
         </div>
         <div style="display:flex;gap:7px">
@@ -4011,7 +5379,7 @@ function renderOrthoList(){
         <div class="prog-track"><div class="prog-fill" style="width:${prog}%;background:linear-gradient(90deg,#7c3aed,#0ea5e9)"></div></div>
       </div>`:''}
       ${hasAppt?`<div style="background:#f0fdf4;border-radius:8px;padding:8px 12px;font-size:12px;color:#16a34a;font-weight:600">
-        Next Appt: ${fmtDate(od.nextAppt)} at ${fmt12hr(od.nextApptTime||'10:00')}
+        Next Appt: ${fmtDate(hasAppt)} at ${fmt12hr(od.nextApptTime||'10:00')}
       </div>`:'<div style="font-size:12px;color:#94a3b8">No appointment scheduled</div>'}
     </div>`;
   }).join('');
@@ -5454,131 +6822,17 @@ var ORTHO_QUICK_NOTES=[
 ];
 
 function renderOrthoVisitsTab(patientId){
-  const p=(DATA.patients||[]).find(x=>x.id===patientId)||activePt;
-  if(!p||p.type!=='ortho') return '<div class="empty"><span class="empty-icon">🦷</span><div class="empty-title">Not an ortho patient</div></div>';
-  const visits=(p.orthoVisits||[]);
-  const lastVisit=visits[0]||null;
-  
-  return `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <div class="sec-title" style="margin:0">🦷 Ortho Visit Log (${visits.length})</div>
-      <div style="display:flex;gap:8px">
-        ${lastVisit?`<button class="btn btn-ghost btn-sm" onclick="repeatLastOrthoVisit('${p.id}')">🔄 Repeat Last</button>`:''}
-        <button class="btn btn-primary btn-sm" onclick="showAddOrthoVisit('${p.id}')">+ New Visit</button>
-      </div>
-    </div>
-    <div id="ortho-visit-form-wrap"></div>
-    <div id="ortho-visits-list">
-      ${visits.length===0?`<div class="empty" style="border:1px solid #e2e8f0;border-radius:14px"><span class="empty-icon">🦷</span><div class="empty-title">No ortho visits yet</div></div>`
-      :visits.map((v,i)=>orthoVisitCardHTML(v,i)).join('')}
-    </div>`;
-}
-
-function orthoVisitCardHTML(v, idx){
-  return `<div class="ortho-visit-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div>
-        <span class="badge badge-purple" style="margin-right:6px">${esc(v.type||'Visit')}</span>
-        <span style="font-size:12px;color:#64748b">${fmtDate(v.date)}</span>
-      </div>
-      <button class="btn btn-red btn-sm btn-icon" onclick="deleteOrthoVisit('${v.id}')">×</button>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:8px">
-      ${v.wire?`<div><span style="color:#94a3b8;font-weight:700;text-transform:uppercase;font-size:10px">Wire</span><div style="font-weight:600;color:#7c3aed">${esc(v.wire)}</div></div>`:''}
-      ${v.elastics&&v.elastics!=='None'?`<div><span style="color:#94a3b8;font-weight:700;text-transform:uppercase;font-size:10px">Elastics</span><div style="font-weight:600;color:#1d4ed8">${esc(v.elastics)}</div></div>`:''}
-      ${v.echain&&v.echain!=='None'?`<div><span style="color:#94a3b8;font-weight:700;text-transform:uppercase;font-size:10px">E-Chain</span><div style="font-weight:600;color:#059669">${esc(v.echain)}</div></div>`:''}
-      ${v.retainer&&v.retainer!=='None'?`<div><span style="color:#94a3b8;font-weight:700;text-transform:uppercase;font-size:10px">Retainer</span><div style="font-weight:600;color:#d97706">${esc(v.retainer)}</div></div>`:''}
-    </div>
-    ${v.notes?`<div style="background:#f8fafc;border-left:3px solid #7c3aed;border-radius:0 8px 8px 0;padding:7px 12px;font-size:12px;color:#475569">${esc(v.notes)}</div>`:''}
-  ${v.nextAppt?`<div style="font-size:11px;color:#3b82f6;margin-top:6px;font-weight:700">&#128197; Next appt: ${fmtDate(v.nextAppt)}</div>`:''}
-  </div>`;
-}
-
-function showAddOrthoVisit(patientId){
-  const wrap=document.getElementById('ortho-visit-form-wrap');
-  wrap.innerHTML=`
-    <div class="card card-body" style="margin-bottom:16px;border:2px solid #7c3aed">
-      <div style="font-size:14px;font-weight:700;color:#7c3aed;margin-bottom:14px">New Ortho Visit</div>
-      <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Date</label><input class="form-input" id="ov-date" type="date" value="${todayISO()}"/></div>
-        <div class="form-group"><label class="form-label">Appointment Type</label>
-          <select class="form-input" id="ov-type">${ORTHO_APPT_TYPE.map(t=>`<option>${t}</option>`).join('')}</select>
-        </div>
-        <div class="form-group"><label class="form-label">Wire Placed</label>
-          <select class="form-input" id="ov-wire"><option value="">None / No Change</option>${ORTHO_WIRES.map(w=>`<option>${w}</option>`).join('')}</select>
-        </div>
-        <div class="form-group"><label class="form-label">Elastics</label>
-          <select class="form-input" id="ov-elastics">${ORTHO_ELASTICS.map(e=>`<option>${e}</option>`).join('')}</select>
-        </div>
-        <div class="form-group"><label class="form-label">E-Chain</label>
-          <select class="form-input" id="ov-echain">${ORTHO_ECHAIN.map(e=>`<option>${e}</option>`).join('')}</select>
-        </div>
-        <div class="form-group"><label class="form-label">Retainer</label>
-          <select class="form-input" id="ov-retainer">${ORTHO_RETAINERS.map(r=>`<option>${r}</option>`).join('')}</select>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Quick Notes</label>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-          ${ORTHO_QUICK_NOTES.slice(0,6).map(n=>`<button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="appendOrthoNote('${n.replace(/'/g,"\\'")}')">+${n.split(' ').slice(0,3).join(' ')}</button>`).join('')}
-        </div>
-        <textarea class="form-input" id="ov-notes" rows="2" placeholder="Detailed clinical notes..."></textarea>
-      </div>
-      <div class="form-group" style="margin-bottom:10px"><label class="form-label">Next Appointment Date</label><input class="form-input" id="ov-next-appt" type="date" style="margin-top:4px"/></div>
-      <div style="display:flex;gap:10px">
-        <button class="btn btn-primary" style="flex:1" onclick="saveOrthoVisit('${patientId}')">💾 Save Visit</button>
-        <button class="btn btn-ghost" onclick="document.getElementById('ortho-visit-form-wrap').innerHTML=''">Cancel</button>
-      </div>
-    </div>`;
-}
-
-function appendOrthoNote(note){
-  const ta=document.getElementById('ov-notes');
-  if(ta) ta.value=(ta.value?ta.value+'; ':'')+note;
-}
-
-function saveOrthoVisit(patientId){
-  const idx=DATA.patients.findIndex(p=>p.id===patientId); if(idx<0) return;
-  const nextApptDate = (document.getElementById('ov-next-appt')||{}).value||'';
-  const v={
-    id:Date.now().toString(),
-    date:document.getElementById('ov-date').value,
-    type:document.getElementById('ov-type').value,
-    wire:document.getElementById('ov-wire').value,
-    elastics:document.getElementById('ov-elastics').value,
-    echain:document.getElementById('ov-echain').value,
-    retainer:document.getElementById('ov-retainer').value,
-    notes:document.getElementById('ov-notes').value,
-    nextAppt: nextApptDate
-  };
-  // Update patient's orthoDetails.nextAppt if set
-  if(nextApptDate && DATA.patients[idx].orthoDetails) {
-    DATA.patients[idx].orthoDetails.nextAppt = nextApptDate;
-  }
-  DATA.patients[idx].orthoVisits=[v,...(DATA.patients[idx].orthoVisits||[])];
-  activePt=DATA.patients[idx];
-  saveData();
-  document.getElementById('ortho-visit-form-wrap').innerHTML='';
-  document.getElementById('ortho-visits-list').innerHTML=(activePt.orthoVisits||[]).map((v,i)=>orthoVisitCardHTML(v,i)).join('');
-}
-
-function deleteOrthoVisit(visitId){
-  if(!confirm('Delete this visit record?')) return;
-  const idx=DATA.patients.findIndex(p=>p.id===activePt.id); if(idx<0) return;
-  DATA.patients[idx].orthoVisits=(DATA.patients[idx].orthoVisits||[]).filter(v=>v.id!==visitId);
-  activePt=DATA.patients[idx]; saveData();
-  document.getElementById('ortho-visits-list').innerHTML=(activePt.orthoVisits||[]).map((v,i)=>orthoVisitCardHTML(v,i)).join('');
-}
-
-function repeatLastOrthoVisit(patientId){
-  const p=(DATA.patients||[]).find(x=>x.id===patientId); if(!p) return;
-  const last=(p.orthoVisits||[])[0]; if(!last){alert('No previous visit found.');return;}
-  const idx=DATA.patients.findIndex(x=>x.id===patientId);
-  const v={...last, id:Date.now().toString(), date:todayISO()};
-  DATA.patients[idx].orthoVisits=[v,...(DATA.patients[idx].orthoVisits||[])];
-  activePt=DATA.patients[idx]; saveData();
-  document.getElementById('ortho-visits-list').innerHTML=(activePt.orthoVisits||[]).map((v,i)=>orthoVisitCardHTML(v,i)).join('');
-  alert('Last visit details copied for today!');
+  setTimeout(function(){
+    var el = document.getElementById('tab-content-ortho-visits');
+    if (el) {
+      renderOrthoDetailTab();
+      var mainEl = document.getElementById('tab-content-ortho-detail');
+      if (mainEl && el) {
+        el.innerHTML = mainEl.innerHTML;
+      }
+    }
+  }, 10);
+  return `<div style="padding:4px"><button class="btn btn-primary btn-sm" onclick="switchTab('ortho-detail')">👉 Go to Monthly Orthodontic Timeline</button></div>`;
 }
 
 /* ── Quick Action Bar Dashboard ── */
