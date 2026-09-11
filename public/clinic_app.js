@@ -3899,7 +3899,7 @@ function shareAllData(){
 }
 
 /* ══════════════════════════════════════════════════════
-   MONTHLY ORTHODONTIC TREATMENT LOG & PLAN GENERATOR
+   ORTHODONTIC MODULE 3.0 — PRODUCTION WORKFLOW
 ══════════════════════════════════════════════════════ */
 var ORTHO_WIRES_LIST = [
   'NiTi 0.12',
@@ -3927,8 +3927,90 @@ var ORTHO_PROCEDURES_LIST = [
   'TAD',
   'Debond',
   'Retainer',
+  'Bite Turbos',
+  'Stripping',
+  'Molar Banding',
   'Other'
 ];
+
+var ORTHO_PHOTO_PROTOCOLS = [
+  { id: 'eo_front_rest', label: 'Extraoral Frontal (Rest)' },
+  { id: 'eo_front_smile', label: 'Extraoral Frontal (Smile)' },
+  { id: 'eo_profile', label: 'Extraoral Profile' },
+  { id: 'eo_45_smile', label: 'Extraoral 45° Smile' },
+  { id: 'io_front_occ', label: 'Intraoral Frontal (Occlusion)' },
+  { id: 'io_right_lat', label: 'Intraoral Right Lateral' },
+  { id: 'io_left_lat', label: 'Intraoral Left Lateral' },
+  { id: 'io_occlusal', label: 'Intraoral Upper/Lower Occlusal' }
+];
+
+var BUILTIN_ORTHO_TEMPLATES = {
+  'class1_nonext': {
+    name: 'Class I Non Extraction',
+    intervalDays: 28,
+    estimatedMonths: 10,
+    stages: [
+      { stageNum: 1, plannedWireUpper: 'NiTi 0.12', plannedWireLower: 'NiTi 0.12', plannedProcedures: ['Bonding'], clinicalObjective: 'Initial Levelling & Alignment', remarks: 'Upper & lower bonding, gentle engagement' },
+      { stageNum: 2, plannedWireUpper: 'NiTi 0.14', plannedWireLower: 'NiTi 0.14', plannedProcedures: [], clinicalObjective: 'Rotational correction & arch expansion', remarks: 'Check bracket engagement' },
+      { stageNum: 3, plannedWireUpper: 'NiTi 0.16', plannedWireLower: 'NiTi 0.16', plannedProcedures: ['IPR'], clinicalObjective: 'Archform coordination & mild crowding resolution', remarks: 'IPR if needed for anterior Bolton discrepancy' },
+      { stageNum: 4, plannedWireUpper: 'NiTi 0.18', plannedWireLower: 'NiTi 0.18', plannedProcedures: [], clinicalObjective: 'Levelling completion', remarks: 'Ensure all rotations fully derotated' },
+      { stageNum: 5, plannedWireUpper: 'SS 0.16×0.22', plannedWireLower: 'SS 0.16×0.22', plannedProcedures: ['Power Chain'], clinicalObjective: 'Torque control & minor space consolidation', remarks: 'Continuous power chain 3-3' },
+      { stageNum: 6, plannedWireUpper: 'SS 0.17×0.25', plannedWireLower: 'SS 0.17×0.25', plannedProcedures: ['Elastics'], clinicalObjective: 'Class I intercuspation', remarks: 'Class I / Triangular settling elastics' },
+      { stageNum: 7, plannedWireUpper: 'TMA 0.17×0.25', plannedWireLower: 'TMA 0.17×0.25', plannedProcedures: [], clinicalObjective: 'Finishing & Detailing', remarks: 'Individual root tip & torque adjustments' },
+      { stageNum: 8, plannedWireUpper: 'SS 0.16', plannedWireLower: 'SS 0.16', plannedProcedures: ['Elastics'], clinicalObjective: 'Occlusal settling', remarks: 'Light settling elastics 3/16" 3.5oz' },
+      { stageNum: 9, plannedWireUpper: 'Retainer', plannedWireLower: 'Retainer', plannedProcedures: ['Debond', 'Retainer'], clinicalObjective: 'Debonding & Retention', remarks: 'Fixed lingual retainer 3-3 + Essix retainer' },
+      { stageNum: 10, plannedWireUpper: 'Retainer', plannedWireLower: 'Retainer', plannedProcedures: ['Retainer'], clinicalObjective: 'Retention Check 1 Month', remarks: 'Check retainer fit and occlusal stability' }
+    ]
+  },
+  'class1_ext': {
+    name: 'Class I Extraction (Bi-Max / 4 Bicuspids)',
+    intervalDays: 28,
+    estimatedMonths: 14,
+    stages: [
+      { stageNum: 1, plannedWireUpper: 'NiTi 0.12', plannedWireLower: 'NiTi 0.12', plannedProcedures: ['Bonding'], clinicalObjective: 'Levelling & Alignment', remarks: 'Bond 7s to 7s, lacebacks on canines' },
+      { stageNum: 2, plannedWireUpper: 'NiTi 0.14', plannedWireLower: 'NiTi 0.14', plannedProcedures: [], clinicalObjective: 'Alignment & de-rotation', remarks: 'Passage to rectangular wire preparation' },
+      { stageNum: 3, plannedWireUpper: 'NiTi 0.16', plannedWireLower: 'NiTi 0.16', plannedProcedures: [], clinicalObjective: 'Arch coordination', remarks: 'Prepare for heavy stainless steel wires' },
+      { stageNum: 4, plannedWireUpper: 'SS 0.16×0.22', plannedWireLower: 'SS 0.16×0.22', plannedProcedures: ['Tie-back'], clinicalObjective: 'Canine retraction initiation', remarks: 'Active tie-backs or coil springs' },
+      { stageNum: 5, plannedWireUpper: 'SS 0.19×0.25', plannedWireLower: 'SS 0.19×0.25', plannedProcedures: ['Power Chain'], clinicalObjective: 'En-masse space closure', remarks: 'Heavy SS wire with soldered hooks & power chains' },
+      { stageNum: 6, plannedWireUpper: 'SS 0.19×0.25', plannedWireLower: 'SS 0.19×0.25', plannedProcedures: ['Power Chain'], clinicalObjective: 'Continued space closure', remarks: 'Monitor overjet and overbite reduction' },
+      { stageNum: 7, plannedWireUpper: 'SS 0.19×0.25', plannedWireLower: 'SS 0.19×0.25', plannedProcedures: ['Power Chain', 'Elastics'], clinicalObjective: 'Final space consolidation & Class I canine/molar', remarks: 'Class II / Class III elastics as required' },
+      { stageNum: 8, plannedWireUpper: 'SS 0.17×0.25', plannedWireLower: 'SS 0.17×0.25', plannedProcedures: ['Elastics'], clinicalObjective: 'Torque adjustment & midline correction', remarks: 'Intermaxillary elastics' },
+      { stageNum: 9, plannedWireUpper: 'TMA 0.17×0.25', plannedWireLower: 'TMA 0.17×0.25', plannedProcedures: [], clinicalObjective: 'Finishing & Detailing', remarks: 'Artistic finishing bends' },
+      { stageNum: 10, plannedWireUpper: 'SS 0.16', plannedWireLower: 'SS 0.16', plannedProcedures: ['Elastics'], clinicalObjective: 'Settling of occlusion', remarks: 'Box / zigzag elastics without lower archwire if needed' },
+      { stageNum: 11, plannedWireUpper: 'Retainer', plannedWireLower: 'Retainer', plannedProcedures: ['Debond', 'Retainer'], clinicalObjective: 'Debonding & Retention', remarks: 'Upper Essix + Lower Fixed Lingual Retainer' },
+      { stageNum: 12, plannedWireUpper: 'Retainer', plannedWireLower: 'Retainer', plannedProcedures: ['Retainer'], clinicalObjective: 'Retention Follow-up', remarks: 'Check extraction site closure stability' }
+    ]
+  },
+  'deep_bite': {
+    name: 'Deep Bite Correction',
+    intervalDays: 28,
+    estimatedMonths: 12,
+    stages: [
+      { stageNum: 1, plannedWireUpper: 'NiTi 0.14', plannedWireLower: 'NiTi 0.14', plannedProcedures: ['Bonding', 'Bite Turbos'], clinicalObjective: 'Levelling + Anterior bite disclusion', remarks: 'Place anterior/posterior bite turbos' },
+      { stageNum: 2, plannedWireUpper: 'NiTi 0.16', plannedWireLower: 'NiTi 0.16', plannedProcedures: [], clinicalObjective: 'Incisor intrusion & premolar eruption', remarks: 'Maintain bite turbos' },
+      { stageNum: 3, plannedWireUpper: 'SS 0.16×0.22', plannedWireLower: 'SS 0.16×0.22', plannedProcedures: ['Elastics'], clinicalObjective: 'Reverse curve of Spee lower & accentuated upper', remarks: 'Begin curve of Spee reversal' },
+      { stageNum: 4, plannedWireUpper: 'SS 0.17×0.25', plannedWireLower: 'SS 0.17×0.25', plannedProcedures: ['Power Chain'], clinicalObjective: 'Overbite reduction & space consolidation', remarks: 'Verify 2mm overbite achieved' },
+      { stageNum: 5, plannedWireUpper: 'SS 0.19×0.25', plannedWireLower: 'SS 0.19×0.25', plannedProcedures: ['Elastics'], clinicalObjective: 'Class I canine & molar relation', remarks: 'Class II elastics for bite settling' },
+      { stageNum: 6, plannedWireUpper: 'TMA 0.17×0.25', plannedWireLower: 'TMA 0.17×0.25', plannedProcedures: [], clinicalObjective: 'Finishing & Detailing', remarks: 'Check canine guidance and incisal clearance' },
+      { stageNum: 7, plannedWireUpper: 'SS 0.16', plannedWireLower: 'SS 0.16', plannedProcedures: ['Elastics'], clinicalObjective: 'Settling', remarks: 'Settling elastics' },
+      { stageNum: 8, plannedWireUpper: 'Retainer', plannedWireLower: 'Retainer', plannedProcedures: ['Debond', 'Retainer'], clinicalObjective: 'Debonding & Retention', remarks: 'Upper Hawley with anterior bite plane + Lower Fixed Retainer' }
+    ]
+  },
+  'open_bite': {
+    name: 'Anterior Open Bite Correction',
+    intervalDays: 28,
+    estimatedMonths: 12,
+    stages: [
+      { stageNum: 1, plannedWireUpper: 'NiTi 0.12', plannedWireLower: 'NiTi 0.12', plannedProcedures: ['Bonding'], clinicalObjective: 'Initial Levelling', remarks: 'Avoid incisor extrusion in early alignment' },
+      { stageNum: 2, plannedWireUpper: 'NiTi 0.14', plannedWireLower: 'NiTi 0.14', plannedProcedures: [], clinicalObjective: 'Alignment & tongue posture re-education', remarks: 'MFT / tongue crib check' },
+      { stageNum: 3, plannedWireUpper: 'SS 0.16', plannedWireLower: 'SS 0.16', plannedProcedures: ['Elastics'], clinicalObjective: 'Anterior vertical elastics', remarks: 'Triangular / Box elastics 3/16" 4.5oz' },
+      { stageNum: 4, plannedWireUpper: 'SS 0.16×0.22', plannedWireLower: 'SS 0.16×0.22', plannedProcedures: ['Elastics'], clinicalObjective: 'Overbite establishment', remarks: 'Achieve positive vertical overlap' },
+      { stageNum: 5, plannedWireUpper: 'SS 0.17×0.25', plannedWireLower: 'SS 0.17×0.25', plannedProcedures: ['Power Chain'], clinicalObjective: 'Consolidation & torque control', remarks: 'Maintain anterior vertical elastics at night' },
+      { stageNum: 6, plannedWireUpper: 'TMA 0.17×0.25', plannedWireLower: 'TMA 0.17×0.25', plannedProcedures: [], clinicalObjective: 'Finishing & Detailing', remarks: 'Detailing with positive anterior coupling' },
+      { stageNum: 7, plannedWireUpper: 'Retainer', plannedWireLower: 'Retainer', plannedProcedures: ['Debond', 'Retainer'], clinicalObjective: 'Debonding & High-stability Retention', remarks: 'Clear wrap-around retainers + Fixed lingual' }
+    ]
+  }
+};
 
 function getOrthoFinancials(patient) {
   var p = patient || activePt || {};
@@ -3957,7 +4039,7 @@ function renderOrthoDetailTab() {
       <div class="card card-body" style="text-align:center;padding:32px 16px;margin-bottom:16px">
         <div style="font-size:38px;margin-bottom:12px">🦷</div>
         <div style="font-weight:700;font-size:16px;color:#1e293b;margin-bottom:6px">Not Set as Orthodontic Patient</div>
-        <div style="font-size:13px;color:#64748b;margin-bottom:18px">Patient category is currently "${esc(p.type || 'General')}". Enable Orthodontic Log to track monthly archwires, procedures & payments.</div>
+        <div style="font-size:13px;color:#64748b;margin-bottom:18px">Patient category is currently "${esc(p.type || 'General')}". Enable Orthodontic Log to track monthly archwires, procedures &amp; payments.</div>
         <button class="btn btn-primary" onclick="convertPatientToOrtho('${p.id}')">🦷 Enable Orthodontic Log for this Patient</button>
       </div>
       <div style="padding:10px 0">${typeof aligner_renderPatientSummary === 'function' ? aligner_renderPatientSummary(p.id) : ''}</div>
@@ -3965,7 +4047,7 @@ function renderOrthoDetailTab() {
     return;
   }
 
-  // Ensure all visits have a permanent unique ID and status
+  // Ensure all visits have permanent unique ID and status
   if (p.orthoVisits && p.orthoVisits.length > 0) {
     p.orthoVisits.forEach((v, idx) => {
       if (!v.id) {
@@ -3983,7 +4065,7 @@ function renderOrthoDetailTab() {
   const hasPlan = plan.stages && plan.stages.length > 0;
   const visits = (p.orthoVisits || []).slice();
 
-  // Sort visits chronologically (earliest to latest) to calculate Month 1, Month 2... and cumulative balance
+  // Sort visits chronologically (earliest to latest)
   const chronological = visits.slice().sort(function(a, b) {
     const da = a.date || a.plannedDate || '';
     const db = b.date || b.plannedDate || '';
@@ -4012,48 +4094,59 @@ function renderOrthoDetailTab() {
 
   const pendingVisitsCount = displayVisits.filter(v => v.status === 'Pending').length;
   const completedVisitsCount = displayVisits.filter(v => v.status === 'Completed').length;
+  const retentionVisitsCount = displayVisits.filter(v => v.phase === 'retention').length;
 
   container.innerHTML = `
     <!-- Top Action Header -->
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div>
         <div class="sec-title" style="margin:0;display:flex;align-items:center;gap:8px">
-          <span>🦷 Monthly Orthodontic Treatment Log</span>
-          <span class="badge badge-purple" style="font-size:12px;padding:3px 8px">${completedVisitsCount} Completed${pendingVisitsCount ? ` &bull; ${pendingVisitsCount} Planned` : ''}</span>
+          <span>🦷 Orthodontic Treatment Log 3.0</span>
+          <span class="badge badge-purple" style="font-size:12px;padding:3px 8px">${completedVisitsCount} Completed${pendingVisitsCount ? ` &bull; ${pendingVisitsCount} Planned` : ''}${retentionVisitsCount ? ` &bull; ${retentionVisitsCount} Retention` : ''}</span>
         </div>
-        <div style="font-size:12px;color:#64748b;margin-top:2px">Custom wire sequences, planned vs actual tracking &amp; month-wise timeline</div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px">Custom wire sequences, FDI tooth selection, 8-photo protocol &amp; smart WA reminders</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-sm" style="background:#7c3aed;color:#ffffff;border:none;font-weight:700" onclick="showOrthoTreatmentPlanModal()">📋 ${hasPlan ? 'Edit Treatment Plan' : 'Create Treatment Plan'}</button>
-        ${pendingVisitsCount > 0 ? `<button class="btn btn-sm" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-weight:700" onclick="showShiftFutureTimelineModal()">⏩ Shift Future Timeline</button>` : ''}
+        ${pendingVisitsCount > 0 ? `<button class="btn btn-sm" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-weight:700" onclick="showShiftFutureTimelineModal()">⏩ Shift Remaining Timeline</button>` : ''}
         <button class="btn btn-primary btn-sm" onclick="showOrthoMonthlyVisitModal()"><span style="font-size:14px;margin-right:2px">➕</span> New Visit</button>
         <button class="btn btn-ghost btn-sm" style="background:#f8fafc;border:1px solid #cbd5e1" onclick="printOrthoProgressSheet('${p.id}')">🖨️ Progress Sheet</button>
-        ${latestNextAppt ? `<button class="btn btn-wa btn-sm" onclick="sendApptWA()">📲 WA Reminder</button>` : ''}
+        <button class="btn btn-wa btn-sm" style="font-weight:700;display:flex;align-items:center;gap:4px" onclick="showOrthoSmartWAModal('${p.id}')">📲 WA Reminder</button>
       </div>
     </div>
 
     <!-- Fixed Fields Top Summary Card -->
     <div class="card card-body" style="margin-bottom:18px;border-top:4px solid #7c3aed;background:#ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.04)">
-      <div class="form-grid-2" style="margin-bottom:14px">
-        <div class="form-group">
+      <div class="form-grid-3" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;margin-bottom:14px">
+        <div class="form-group" style="margin:0">
           <label class="form-label" style="font-weight:700;color:#334155">Start Date</label>
           <input class="form-input" type="date" value="${od.startDate || plan.startDate || p.createdAt || todayISO()}" onchange="updateOrthoFixedField('startDate', this.value)"/>
         </div>
-        <div class="form-group">
+        <div class="form-group" style="margin:0">
           <label class="form-label" style="font-weight:700;color:#334155">Bracket Type</label>
           <select class="form-input" onchange="updateOrthoFixedField('bracket', this.value)">
             ${BRACKETS.map(b => `<option ${od.bracket === b ? 'selected' : ''}>${b}</option>`).join('')}
           </select>
         </div>
-        <div class="form-group">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-weight:700;color:#334155">Student / Preferred Timing</label>
+          <select class="form-input" onchange="updateOrthoFixedField('preferredTiming', this.value)">
+            <option value="Evening (4 PM - 7 PM)" ${(od.preferredTiming || 'Evening (4 PM - 7 PM)').includes('Evening') ? 'selected' : ''}>🌆 Evening (4 PM - 7 PM)</option>
+            <option value="Coaching after 5 PM" ${(od.preferredTiming || '').includes('Coaching') ? 'selected' : ''}>📚 Coaching after 5 PM</option>
+            <option value="Afternoon (12 PM - 4 PM)" ${(od.preferredTiming || '').includes('Afternoon') ? 'selected' : ''}>☀️ Afternoon (12 PM - 4 PM)</option>
+            <option value="Morning (9 AM - 12 PM)" ${(od.preferredTiming || '').includes('Morning') ? 'selected' : ''}>🌅 Morning (9 AM - 12 PM)</option>
+            <option value="Custom Class Timings" ${(od.preferredTiming || '').includes('Custom') ? 'selected' : ''}>✏️ Custom Class Timings</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0">
           <label class="form-label" style="font-weight:700;color:#334155">Total Treatment Cost (₹)</label>
           <input class="form-input" type="number" min="0" value="${od.totalCost || ''}" placeholder="e.g. 35000" onchange="updateOrthoFixedField('totalCost', this.value)"/>
         </div>
-        <div class="form-group">
-          <label class="form-label" style="font-weight:700;color:#334155">Total Paid (auto calculated)</label>
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-weight:700;color:#334155">Total Paid (auto)</label>
           <div style="background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d;font-weight:800;font-size:15px;padding:9px 12px;border-radius:8px;display:flex;align-items:center;justify-content:space-between">
             <span>${fmtMoney(fin.totalPaid)}</span>
-            <span style="font-size:11px;font-weight:600;color:#16a34a;background:#dcfce7;padding:2px 8px;border-radius:99px">${completedVisitsCount} Payment${completedVisitsCount === 1 ? '' : 's'}</span>
+            <span style="font-size:11px;font-weight:600;color:#16a34a;background:#dcfce7;padding:2px 8px;border-radius:99px">${completedVisitsCount} Visit Payment${completedVisitsCount === 1 ? '' : 's'}</span>
           </div>
         </div>
       </div>
@@ -4072,30 +4165,32 @@ function renderOrthoDetailTab() {
         </div>
       </div>
 
-      <!-- Plan Overview Banner if Plan exists -->
+      <!-- Plan Banner / Retention Generator -->
       ${hasPlan ? `
-        <div style="margin-top:12px;padding:10px 12px;background:#f5f3ff;border-radius:8px;border:1px solid #ddd6fe;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px">
+        <div style="margin-top:12px;padding:10px 14px;background:#f5f3ff;border-radius:8px;border:1px solid #ddd6fe;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px">
           <div>
-            <strong style="color:#6b21a8">📋 Custom Plan:</strong> ${plan.stages.length} Stages &bull; Interval: Every ${plan.intervalDays || 28} Days &bull; Duration: ${plan.estimatedMonths || plan.stages.length} Months
+            <strong style="color:#6b21a8">📋 Active Plan:</strong> ${plan.stages.length} Stages &bull; Interval: Every ${plan.intervalDays || 28} Days &bull; Duration: ${plan.estimatedMonths || plan.stages.length} Months
+            ${plan.templateName ? `<span class="badge" style="background:#ede9fe;color:#6d28d9;margin-left:6px;font-size:11px">Template: ${esc(plan.templateName)}</span>` : ''}
           </div>
           <div style="display:flex;gap:6px">
-            <button class="btn btn-ghost btn-sm" style="background:#fff;padding:2px 8px;font-size:11px" onclick="showOrthoTreatmentPlanModal()">✏️ Edit Plan</button>
-            <button class="btn btn-ghost btn-sm" style="background:#fff;padding:2px 8px;font-size:11px" onclick="showShiftFutureTimelineModal()">⏩ Shift Dates</button>
+            <button class="btn btn-ghost btn-sm" style="background:#fff;padding:3px 8px;font-size:11px;font-weight:600" onclick="showOrthoTreatmentPlanModal()">✏️ Edit Plan</button>
+            <button class="btn btn-ghost btn-sm" style="background:#fff;padding:3px 8px;font-size:11px;font-weight:600" onclick="showShiftFutureTimelineModal()">⏩ Shift Dates</button>
+            <button class="btn btn-ghost btn-sm" style="background:#fff;padding:3px 8px;font-size:11px;font-weight:600;color:#047857" onclick="initiateOrthoRetentionPhase()">🛡️ Add Retention Phase</button>
           </div>
         </div>
       ` : `
-        <div style="margin-top:12px;padding:10px 12px;background:#fdf4ff;border-radius:8px;border:1px dashed #f0abfc;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px">
+        <div style="margin-top:12px;padding:10px 14px;background:#fdf4ff;border-radius:8px;border:1px dashed #f0abfc;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px">
           <div style="color:#86198f">
-            💡 <strong>Treatment Plan Tip:</strong> Create this patient's custom wire progression sequence once, and automatically generate the entire monthly timeline.
+            💡 <strong>Treatment Protocol Tip:</strong> Create this patient's custom wire progression sequence or load from the protocol library (Class I, Deep Bite, Open Bite) to auto-generate the timeline.
           </div>
-          <button class="btn btn-sm" style="background:#c026d3;color:#fff;border:none;font-weight:700" onclick="showOrthoTreatmentPlanModal()">⚡ Generate Custom Plan</button>
+          <button class="btn btn-sm" style="background:#c026d3;color:#fff;border:none;font-weight:700" onclick="showOrthoTreatmentPlanModal()">⚡ Generate Plan &amp; Protocol</button>
         </div>
       `}
     </div>
 
     <!-- Timeline Header -->
     <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
-      <div style="font-weight:800;font-size:13px;color:#1e293b;text-transform:uppercase;letter-spacing:0.5px">📅 Month-wise Treatment Timeline</div>
+      <div style="font-weight:800;font-size:13px;color:#1e293b;text-transform:uppercase;letter-spacing:0.5px">📅 Month-wise Treatment &amp; Retention Timeline</div>
       <div style="font-size:12px;color:#64748b">Newest visits first</div>
     </div>
 
@@ -4105,7 +4200,7 @@ function renderOrthoDetailTab() {
         <div class="empty" style="border:2px dashed #cbd5e1;border-radius:14px;padding:36px 16px;text-align:center;background:#f8fafc">
           <span class="empty-icon" style="font-size:42px">🦷</span>
           <div class="empty-title" style="font-size:15px;font-weight:700;color:#334155;margin-top:8px">No orthodontic timeline generated yet</div>
-          <p style="font-size:12px;color:#64748b;margin:6px 0 16px">Click below to create a custom treatment plan or record Month 1 visit directly.</p>
+          <p style="font-size:12px;color:#64748b;margin:6px 0 16px">Click below to create a custom treatment plan from protocol templates or record Month 1 visit directly.</p>
           <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
             <button class="btn btn-primary" onclick="showOrthoTreatmentPlanModal()">📋 Create Treatment Plan</button>
             <button class="btn btn-ghost" style="border:1px solid #cbd5e1" onclick="showOrthoMonthlyVisitModal()">➕ Add Single Visit</button>
@@ -4118,43 +4213,62 @@ function renderOrthoDetailTab() {
 
 function renderOrthoTimelineCard(v, p) {
   const isPending = v.status === 'Pending';
+  const isRetention = v.phase === 'retention';
   const procs = Array.isArray(v.procedures) ? v.procedures : (v.procedures ? [v.procedures] : (v.procedure ? [v.procedure] : (v.plannedProcedures || [])));
   const procPills = procs.length > 0
     ? procs.map(pr => `<span style="display:inline-block;background:${isPending ? '#fef3c7' : '#ede9fe'};color:${isPending ? '#92400e' : '#6d28d9'};font-weight:700;font-size:11px;padding:2px 8px;border-radius:99px;margin-right:4px;margin-bottom:3px">${esc(pr)}</span>`).join('')
     : '<span style="color:#94a3b8;font-size:12px">None</span>';
 
+  const teethList = Array.isArray(v.selectedTeeth) ? v.selectedTeeth : (v.selectedTeeth ? [v.selectedTeeth] : []);
   const photos = Array.isArray(v.photos) ? v.photos : (v.photos ? [v.photos] : []);
   const safeId = esc(String(v.id || ''));
   const cardDate = v.date || v.plannedDate || todayISO();
 
+  const borderCol = isRetention ? '#059669' : (isPending ? '#f59e0b' : '#7c3aed');
+
   return `
-    <div class="card" style="margin-bottom:14px;border-left:4px solid ${isPending ? '#f59e0b' : '#7c3aed'};background:#ffffff;box-shadow:0 1px 4px rgba(0,0,0,0.05);padding:14px 16px;border-radius:10px">
+    <div class="card" style="margin-bottom:14px;border-left:4px solid ${borderCol};background:#ffffff;box-shadow:0 1px 4px rgba(0,0,0,0.05);padding:14px 16px;border-radius:10px">
       <!-- Card Header -->
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #f1f5f9">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span style="font-weight:800;font-size:15px;color:#1e293b">Month ${v.monthNum || 1} — ${fmtDate(cardDate)}</span>
-          <span class="badge" style="font-size:11px;font-weight:700;background:${isPending ? '#fef3c7;color:#92400e;border:1px solid #fde68a' : '#dcfce7;color:#15803d;border:1px solid #bbf7d0'}">
-            ${isPending ? '⏳ Planned (Pending)' : '✅ Completed'}
+          <span style="font-weight:800;font-size:15px;color:#1e293b">
+            ${isRetention ? `🛡️ Retention (${v.retentionInterval || 'Checkup'}) — ${fmtDate(cardDate)}` : `Month ${v.monthNum || 1} — ${fmtDate(cardDate)}`}
+          </span>
+          <span class="badge" style="font-size:11px;font-weight:700;background:${isPending ? '#fef3c7;color:#92400e;border:1px solid #fde68a' : (isRetention ? '#d1fae5;color:#065f46;border:1px solid #a7f3d0' : '#dcfce7;color:#15803d;border:1px solid #bbf7d0')}">
+            ${isPending ? '⏳ Planned (Pending)' : (isRetention ? '🛡️ Retention Recorded' : '✅ Completed')}
           </span>
           ${v.arch ? `<span class="badge" style="background:#f1f5f9;color:#475569;font-size:11px;font-weight:700">${esc(v.arch)}</span>` : ''}
         </div>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;align-items:center">
           ${isPending ? `<button class="btn btn-primary btn-sm" style="padding:4px 10px;font-size:11px;font-weight:700" onclick="showOrthoMonthlyVisitModal('${safeId}')">📝 Record Follow-up</button>` : ''}
-          <button class="btn btn-ghost btn-sm" style="background:#f8fafc;border:1px solid #e2e8f0;padding:4px 10px;font-size:11px;font-weight:600" onclick="showOrthoMonthlyVisitModal('${safeId}')">✏️ Edit</button>
-          <button class="btn btn-red btn-sm" style="padding:4px 10px;font-size:11px;font-weight:600" onclick="deleteOrthoMonthlyVisit('${safeId}')">🗑️ Delete</button>
+          ${isPending ? `<button class="btn btn-ghost btn-sm" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:4px 8px;font-size:11px;font-weight:600" onclick="showShiftFutureTimelineModal('${safeId}')">⏩ Shift</button>` : ''}
+          <button class="btn btn-wa btn-sm" style="padding:4px 8px;font-size:11px;font-weight:700" onclick="showOrthoSmartWAModal('${p.id}', '${safeId}')">📲 WA</button>
+          <button class="btn btn-ghost btn-sm" style="background:#f8fafc;border:1px solid #e2e8f0;padding:4px 10px;font-size:11px;font-weight:600" onclick="unlockAndEditOrthoVisit('${safeId}')">✏️ ${isPending ? 'Edit' : '🔒 Edit'}</button>
+          <button class="btn btn-red btn-sm" style="padding:4px 8px;font-size:11px;font-weight:600" onclick="deleteOrthoMonthlyVisit('${safeId}')">🗑️</button>
         </div>
       </div>
 
       <!-- Card Key Details Grid -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:8px;font-size:12px;margin-bottom:10px">
-        <div>
-          <span style="color:#64748b;font-weight:600">${isPending ? 'Planned Upper:' : 'Upper:'}</span>
-          <strong style="color:#7c3aed;margin-left:4px">${esc(v.wireUpper || v.wire || v.plannedWireUpper || '-')}</strong>
-        </div>
-        <div>
-          <span style="color:#64748b;font-weight:600">${isPending ? 'Planned Lower:' : 'Lower:'}</span>
-          <strong style="color:#7c3aed;margin-left:4px">${esc(v.wireLower || v.plannedWireLower || '-')}</strong>
-        </div>
+        ${!isRetention ? `
+          <div>
+            <span style="color:#64748b;font-weight:600">${isPending ? 'Planned Upper:' : 'Upper Wire:'}</span>
+            <strong style="color:#7c3aed;margin-left:4px">${esc(v.wireUpper || v.wire || v.plannedWireUpper || '-')}</strong>
+          </div>
+          <div>
+            <span style="color:#64748b;font-weight:600">${isPending ? 'Planned Lower:' : 'Lower Wire:'}</span>
+            <strong style="color:#7c3aed;margin-left:4px">${esc(v.wireLower || v.plannedWireLower || '-')}</strong>
+          </div>
+        ` : `
+          <div>
+            <span style="color:#64748b;font-weight:600">Retainer Type:</span>
+            <strong style="color:#059669;margin-left:4px">${esc(v.retainerType || 'Hawley / Essix')}</strong>
+          </div>
+          <div>
+            <span style="color:#64748b;font-weight:600">Fit &amp; Compliance:</span>
+            <strong style="color:#0d9488;margin-left:4px">${esc(v.retainerFit || 'Good')} &bull; ${esc(v.retainerCompliance || 'Full-time')}</strong>
+          </div>
+        `}
         ${!isPending ? `
           <div>
             <span style="color:#64748b;font-weight:600">Paid:</span>
@@ -4170,7 +4284,15 @@ function renderOrthoTimelineCard(v, p) {
         ` : ''}
       </div>
 
-      <!-- Clinical Objective (if set) -->
+      <!-- Tooth-wise FDI selection display if any -->
+      ${teethList.length > 0 ? `
+        <div style="margin-bottom:8px;font-size:12px;background:#f8fafc;padding:6px 10px;border-radius:6px;border:1px solid #e2e8f0;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span style="font-weight:700;color:#475569">🦷 Teeth Involved (FDI):</span>
+          ${teethList.map(t => `<span style="background:#e0e7ff;color:#3730a3;font-weight:800;font-size:10px;padding:1px 6px;border-radius:4px">${t}</span>`).join('')}
+        </div>
+      ` : ''}
+
+      <!-- Clinical Objective -->
       ${v.clinicalObjective ? `
         <div style="margin-bottom:6px;font-size:12px">
           <span style="font-weight:700;color:#475569">🎯 Objective:</span> <span style="color:#1e293b;font-weight:600">${esc(v.clinicalObjective)}</span>
@@ -4190,7 +4312,7 @@ function renderOrthoTimelineCard(v, p) {
         </div>
       ` : ''}
       ${v.notes ? `
-        <div style="background:#f8fafc;border-left:3px solid #7c3aed;padding:8px 12px;border-radius:0 6px 6px 0;font-size:12px;color:#334155;margin-bottom:8px">
+        <div style="background:#f8fafc;border-left:3px solid ${isRetention ? '#059669' : '#7c3aed'};padding:8px 12px;border-radius:0 6px 6px 0;font-size:12px;color:#334155;margin-bottom:8px">
           <strong>Clinical Notes:</strong> ${esc(v.notes)}
         </div>
       ` : ''}
@@ -4198,18 +4320,36 @@ function renderOrthoTimelineCard(v, p) {
       <!-- Photos (if any) -->
       ${photos.length > 0 ? `
         <div style="margin-top:8px">
-          <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:4px">📷 Photos (${photos.length})</div>
+          <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:4px">📷 Progress Photos (${photos.length})</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            ${photos.map((ph, pi) => `
-              <div style="position:relative;width:60px;height:60px;border-radius:6px;overflow:hidden;border:1px solid #cbd5e1;cursor:pointer" onclick="orthoVisit_viewPhoto('${typeof ph === 'string' ? ph : (ph.url || '')}')">
-                <img src="${typeof ph === 'string' ? ph : (ph.url || '')}" style="width:100%;height:100%;object-fit:cover" alt="Ortho photo" />
-              </div>
-            `).join('')}
+            ${photos.map((ph) => {
+              const url = typeof ph === 'string' ? ph : (ph.url || '');
+              const lbl = typeof ph === 'object' && ph.label ? ph.label : '';
+              return `
+                <div style="position:relative;width:64px;height:64px;border-radius:6px;overflow:hidden;border:1px solid #cbd5e1;cursor:pointer" onclick="orthoVisit_viewPhoto('${url}')" title="${esc(lbl)}">
+                  <img src="${url}" style="width:100%;height:100%;object-fit:cover" alt="Ortho photo" />
+                  ${lbl ? `<div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);color:#fff;font-size:8px;padding:1px 2px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(lbl)}</div>` : ''}
+                </div>
+              `;
+            }).join('')}
           </div>
         </div>
       ` : ''}
     </div>
   `;
+}
+
+function unlockAndEditOrthoVisit(visitId) {
+  const p = activePt;
+  if (!p) return;
+  const visits = p.orthoVisits || [];
+  const v = visits.find(x => String(x.id) === String(visitId));
+  if (v && v.status === 'Completed') {
+    if (!confirm('⚠️ Notice: This visit is already marked as COMPLETED.\n\nDo you want to unlock it for editing clinical details?')) {
+      return;
+    }
+  }
+  showOrthoMonthlyVisitModal(visitId);
 }
 
 function closeOrthoModal() {
@@ -4218,7 +4358,7 @@ function closeOrthoModal() {
 }
 
 /* ══════════════════════════════════════════════════════
-   PLANNING SCREEN MODAL & TIMELINE GENERATION
+   1 & 3. PLANNING SCREEN & PROTOCOL TEMPLATE LIBRARY
 ══════════════════════════════════════════════════════ */
 function showOrthoTreatmentPlanModal() {
   const p = activePt;
@@ -4235,6 +4375,8 @@ function showOrthoTreatmentPlanModal() {
     stages = createDefaultOrthoStages(estimatedMonths);
   }
 
+  const customTemplates = DATA.orthoTemplates || [];
+
   closeOrthoModal();
 
   const modalOverlay = document.createElement('div');
@@ -4242,17 +4384,33 @@ function showOrthoTreatmentPlanModal() {
   modalOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px);box-sizing:border-box';
 
   modalOverlay.innerHTML = `
-    <div class="card card-body" style="width:100%;max-width:920px;max-height:92vh;overflow-y:auto;background:#ffffff;border-radius:14px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);border:1px solid #e2e8f0;padding:22px;box-sizing:border-box" onclick="event.stopPropagation()">
+    <div class="card card-body" style="width:100%;max-width:940px;max-height:92vh;overflow-y:auto;background:#ffffff;border-radius:14px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);border:1px solid #e2e8f0;padding:22px;box-sizing:border-box" onclick="event.stopPropagation()">
       <!-- Modal Header -->
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1.5px solid #f1f5f9">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1.5px solid #f1f5f9">
         <div>
           <div style="font-size:17px;font-weight:800;color:#7c3aed;display:flex;align-items:center;gap:6px">
             <span>📋</span>
-            <span>Custom Orthodontic Treatment Plan Generator</span>
+            <span>Orthodontic Treatment Plan Generator &amp; Protocol Library</span>
           </div>
-          <div style="font-size:12px;color:#64748b;margin-top:2px">Design custom wire progression, procedures &amp; auto-generate monthly timeline for <strong>${esc(p.name)}</strong></div>
+          <div style="font-size:12px;color:#64748b;margin-top:2px">Patient: <strong>${esc(p.name)}</strong> &bull; Custom wire sequence with auto-calculated timeline dates</div>
         </div>
         <button type="button" class="btn btn-ghost btn-sm" style="font-size:16px;line-height:1;padding:4px 8px" onclick="closeOrthoModal()">✕</button>
+      </div>
+
+      <!-- Protocol Library Selector Bar -->
+      <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:12px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:12px;font-weight:800;color:#6b21a8">📚 Load Protocol Template:</span>
+          <select class="form-input" id="otp-template-select" style="font-size:12px;padding:4px 10px;width:auto" onchange="handleOrthoTemplateSelect(this.value)">
+            <option value="">-- Choose Standard Protocol --</option>
+            <option value="class1_nonext">Class I Non Extraction</option>
+            <option value="class1_ext">Class I Extraction (Bi-Max)</option>
+            <option value="deep_bite">Deep Bite Correction</option>
+            <option value="open_bite">Open Bite Correction</option>
+            ${customTemplates.length > 0 ? `<optgroup label="Doctor Custom Templates">${customTemplates.map(ct => `<option value="custom_${ct.id}">${esc(ct.name)} (${ct.stages.length} Stages)</option>`).join('')}</optgroup>` : ''}
+          </select>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" style="background:#ffffff;border:1px solid #c4b5fd;color:#6d28d9;font-weight:700;font-size:11px" onclick="saveCurrentPlanAsTemplate()">💾 Save as Treatment Template</button>
       </div>
 
       <!-- Configuration Card -->
@@ -4304,7 +4462,7 @@ function showOrthoTreatmentPlanModal() {
         <button type="button" class="btn btn-ghost" style="padding:10px 16px" onclick="closeOrthoModal()">Cancel</button>
         <div style="display:flex;gap:8px">
           <button type="button" class="btn btn-ghost" style="border:1px solid #cbd5e1;padding:10px 16px;font-weight:700" onclick="saveOrthoPlanData(false)">💾 Save Plan Draft</button>
-          <button type="button" class="btn btn-primary" style="padding:10px 20px;font-size:14px;font-weight:800;background:linear-gradient(135deg,#7c3aed,#4f46e5)" onclick="saveOrthoPlanData(true)">⚡ Generate / Update Monthly Timeline</button>
+          <button type="button" class="btn btn-primary" style="padding:10px 20px;font-size:14px;font-weight:800;background:linear-gradient(135deg,#7c3aed,#4f46e5)" onclick="saveOrthoPlanData(true)">⚡ Generate Monthly Timeline</button>
         </div>
       </div>
     </div>
@@ -4313,31 +4471,99 @@ function showOrthoTreatmentPlanModal() {
   document.body.appendChild(modalOverlay);
 }
 
-function createDefaultOrthoStages(count) {
-  const defaultSequence = [
-    { upper: 'NiTi 0.12', lower: 'NiTi 0.12', procs: ['Bonding'], obj: 'Initial Levelling & Alignment', rem: 'Upper & Lower Bonding' },
-    { upper: 'NiTi 0.14', lower: 'NiTi 0.14', procs: [], obj: 'Rotational correction', rem: '' },
-    { upper: 'NiTi 0.16', lower: 'NiTi 0.16', procs: [], obj: 'Archform coordination', rem: '' },
-    { upper: 'NiTi 0.18', lower: 'NiTi 0.18', procs: [], obj: 'Levelling completion', rem: '' },
-    { upper: 'SS 0.16×0.22', lower: 'SS 0.16×0.22', procs: ['Power Chain'], obj: 'Space Closure & Consolidation', rem: '' },
-    { upper: 'SS 0.17×0.25', lower: 'SS 0.17×0.25', procs: ['Elastics'], obj: 'Torque control & Class II/III correction', rem: '' },
-    { upper: 'SS 0.19×0.25', lower: 'SS 0.19×0.25', procs: ['Power Chain'], obj: 'En-masse retraction', rem: '' },
-    { upper: 'TMA 0.17×0.25', lower: 'TMA 0.17×0.25', procs: [], obj: 'Finishing & Detailing', rem: 'Bends for torque & tip' },
-    { upper: 'SS 0.16', lower: 'SS 0.16', procs: ['Elastics'], obj: 'Settling of occlusion', rem: 'Box / Triangular elastics' },
-    { upper: 'Retainer', lower: 'Retainer', procs: ['Debond', 'Retainer'], obj: 'Debonding & Retention', rem: 'Fixed lingual retainer / Essix' }
-  ];
+function handleOrthoTemplateSelect(val) {
+  if (!val) return;
+  let templateObj = null;
+  if (val.startsWith('custom_')) {
+    const custId = val.replace('custom_', '');
+    const customs = DATA.orthoTemplates || [];
+    templateObj = customs.find(c => String(c.id) === String(custId));
+  } else if (BUILTIN_ORTHO_TEMPLATES[val]) {
+    templateObj = BUILTIN_ORTHO_TEMPLATES[val];
+  }
 
+  if (!templateObj) return;
+
+  const startDate = (document.getElementById('otp-start-date') || {}).value || todayISO();
+  const intervalEl = document.getElementById('otp-interval');
+  if (intervalEl && templateObj.intervalDays) intervalEl.value = String(templateObj.intervalDays);
+  const durEl = document.getElementById('otp-duration');
+  if (durEl && templateObj.estimatedMonths) durEl.value = String(templateObj.estimatedMonths);
+
+  const container = document.getElementById('otp-stages-container');
+  if (!container) return;
+
+  const intervalDays = Number((intervalEl || {}).value || 28);
+  container.innerHTML = templateObj.stages.map((st, i) => renderOrthoPlanStageRowHtml(st, i + 1, startDate, intervalDays)).join('');
+
+  const countEl = document.getElementById('otp-stages-count');
+  if (countEl) countEl.textContent = templateObj.stages.length;
+}
+
+function saveCurrentPlanAsTemplate() {
+  const name = prompt('Enter a name for this Orthodontic Protocol Template (e.g. Class I Extraction, Deep Bite Protocol):');
+  if (!name || !name.trim()) return;
+
+  const intervalDays = Number((document.getElementById('otp-interval') || {}).value || 28);
+  const estimatedMonths = Number((document.getElementById('otp-duration') || {}).value || 12);
+  const stageCards = document.querySelectorAll('.otp-stage-card');
+  const stages = [];
+
+  stageCards.forEach((card, i) => {
+    const upper = (card.querySelector('.otp-stage-wire-upper') || {}).value || '';
+    const lower = (card.querySelector('.otp-stage-wire-lower') || {}).value || '';
+    const obj = ((card.querySelector('.otp-stage-obj') || {}).value || '').trim();
+    const rem = ((card.querySelector('.otp-stage-rem') || {}).value || '').trim();
+    
+    const procs = [];
+    card.querySelectorAll('.otp-proc-chip').forEach(btn => {
+      if (btn.classList.contains('active') || btn.textContent.trim().startsWith('✓')) {
+        procs.push(btn.getAttribute('data-proc'));
+      }
+    });
+
+    stages.push({
+      stageNum: i + 1,
+      plannedWireUpper: upper,
+      plannedWireLower: lower,
+      plannedProcedures: procs,
+      clinicalObjective: obj,
+      remarks: rem
+    });
+  });
+
+  if (stages.length === 0) {
+    alert('Please add at least one stage before saving template.');
+    return;
+  }
+
+  if (!DATA.orthoTemplates) DATA.orthoTemplates = [];
+  const newTpl = {
+    id: Date.now().toString(),
+    name: name.trim(),
+    intervalDays: intervalDays,
+    estimatedMonths: estimatedMonths,
+    stages: stages,
+    createdAt: new Date().toISOString()
+  };
+  DATA.orthoTemplates.push(newTpl);
+  saveData();
+  alert(`✅ Template "${esc(name)}" saved to Protocol Library! You can now apply it to any patient.`);
+}
+
+function createDefaultOrthoStages(count) {
+  const tpl = BUILTIN_ORTHO_TEMPLATES['class1_nonext'];
   const res = [];
   const n = Math.max(1, count || 12);
   for (let i = 0; i < n; i++) {
-    const tpl = defaultSequence[i] || defaultSequence[defaultSequence.length - 1];
+    const base = tpl.stages[i] || tpl.stages[tpl.stages.length - 1];
     res.push({
       stageNum: i + 1,
-      plannedWireUpper: tpl.upper,
-      plannedWireLower: tpl.lower,
-      plannedProcedures: (tpl.procs || []).slice(),
-      clinicalObjective: tpl.obj || `Stage ${i + 1} Progress`,
-      remarks: tpl.rem || ''
+      plannedWireUpper: base.plannedWireUpper,
+      plannedWireLower: base.plannedWireLower,
+      plannedProcedures: (base.plannedProcedures || []).slice(),
+      clinicalObjective: base.clinicalObjective || `Stage ${i + 1} Progress`,
+      remarks: base.remarks || ''
     });
   }
   return res;
@@ -4352,7 +4578,7 @@ function renderOrthoPlanStageRowHtml(st, stageNum, startDate, intervalDays) {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #f1f5f9">
         <div style="display:flex;align-items:center;gap:8px">
           <span class="badge badge-purple" style="font-weight:800;font-size:12px">Month / Stage ${stageNum}</span>
-          <span class="otp-stage-date" style="font-size:12px;color:#64748b;font-weight:600">📅 Est: ${fmtDate(stageTargetDate)}</span>
+          <span class="otp-stage-date" style="font-size:12px;color:#64748b;font-weight:600">📅 Expected: ${fmtDate(stageTargetDate)}</span>
         </div>
         <button type="button" class="btn btn-red btn-sm" style="padding:2px 8px;font-size:11px" onclick="deleteOrthoPlanStageRow(this)">🗑️</button>
       </div>
@@ -4456,7 +4682,7 @@ function recalcOrthoPlanDates() {
     if (badge) badge.textContent = `Month / Stage ${stageNum}`;
     const dateEl = card.querySelector('.otp-stage-date');
     const targetDate = addDaysToDate(startDate, idx * intervalDays);
-    if (dateEl) dateEl.textContent = `📅 Est: ${fmtDate(targetDate)}`;
+    if (dateEl) dateEl.textContent = `📅 Expected: ${fmtDate(targetDate)}`;
   });
 
   const countEl = document.getElementById('otp-stages-count');
@@ -4522,10 +4748,10 @@ async function saveOrthoPlanData(generateTimeline) {
       const stageDate = addDaysToDate(startDate, i * intervalDays);
       
       // Look for existing completed or pending visit for this stage
-      const existingIdx = currentVisits.findIndex(v => v.monthNum === st.stageNum);
+      const existingIdx = currentVisits.findIndex(v => v.monthNum === st.stageNum && v.phase !== 'retention');
 
       if (existingIdx >= 0) {
-        // If visit is already completed, do NOT overwrite clinical actuals! Only update planned metadata
+        // If visit is already completed, do NOT overwrite clinical actuals!
         if (currentVisits[existingIdx].status === 'Completed') {
           currentVisits[existingIdx].plannedWireUpper = st.plannedWireUpper;
           currentVisits[existingIdx].plannedWireLower = st.plannedWireLower;
@@ -4556,6 +4782,7 @@ async function saveOrthoPlanData(generateTimeline) {
           plannedWireLower: st.plannedWireLower,
           plannedProcedures: st.plannedProcedures,
           procedures: [],
+          selectedTeeth: [],
           amountPaid: 0,
           notes: '',
           clinicalObjective: st.clinicalObjective,
@@ -4575,13 +4802,13 @@ async function saveOrthoPlanData(generateTimeline) {
 
   closeOrthoModal();
   renderOrthoDetailTab();
-  alert(generateTimeline ? '✅ Orthodontic Treatment Plan saved and timeline generated!' : '✅ Orthodontic Treatment Plan draft saved!');
+  alert(generateTimeline ? '✅ Orthodontic Treatment Plan saved and monthly timeline generated!' : '✅ Orthodontic Treatment Plan draft saved!');
 }
 
 /* ══════════════════════════════════════════════════════
-   DELAY MANAGEMENT: SHIFT FUTURE TIMELINE
+   4. SMART TIMELINE SHIFT (DELAY MANAGEMENT)
 ══════════════════════════════════════════════════════ */
-function showShiftFutureTimelineModal() {
+function showShiftFutureTimelineModal(fromVisitId) {
   const p = activePt;
   if (!p) return;
   const visits = p.orthoVisits || [];
@@ -4589,13 +4816,20 @@ function showShiftFutureTimelineModal() {
   const intervalDays = Number(plan.intervalDays || 28);
 
   // Filter pending visits sorted chronologically
-  const pendingVisits = visits.filter(v => v.status === 'Pending').sort((a, b) => {
+  let pendingVisits = visits.filter(v => v.status === 'Pending').sort((a, b) => {
     return (a.plannedDate || a.date || '').localeCompare(b.plannedDate || b.date || '');
   });
 
   if (pendingVisits.length === 0) {
     alert('No pending future visits found to shift. All logged visits are already marked as completed.');
     return;
+  }
+
+  if (fromVisitId) {
+    const targetIdx = pendingVisits.findIndex(v => String(v.id) === String(fromVisitId));
+    if (targetIdx >= 0) {
+      pendingVisits = pendingVisits.slice(targetIdx);
+    }
   }
 
   closeOrthoModal();
@@ -4613,27 +4847,27 @@ function showShiftFutureTimelineModal() {
         <div>
           <div style="font-size:16px;font-weight:800;color:#d97706;display:flex;align-items:center;gap:6px">
             <span>⏩</span>
-            <span>Shift Future Treatment Timeline</span>
+            <span>Shift Remaining Timeline (Smart Delay Management)</span>
           </div>
-          <div style="font-size:12px;color:#64748b;margin-top:2px">Manage appointment delays without changing previous completed visits</div>
+          <div style="font-size:12px;color:#64748b;margin-top:2px">Only future pending appointments will move. Completed visits remain permanent.</div>
         </div>
         <button type="button" class="btn btn-ghost btn-sm" style="font-size:16px;line-height:1;padding:4px 8px" onclick="closeOrthoModal()">✕</button>
       </div>
 
       <div class="alert-box" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 12px;border-radius:8px;font-size:12px;margin-bottom:14px">
-        ℹ️ <strong>Delay Management:</strong> Recalculate remaining <strong>${pendingVisits.length} pending appointment(s)</strong> starting from <strong>Month ${firstPending.monthNum}</strong>.
+        ℹ️ <strong>Timeline Adjustment:</strong> Shifting <strong>${pendingVisits.length} upcoming pending visit(s)</strong> starting from <strong>Month ${firstPending.monthNum}</strong>.
       </div>
 
       <div class="form-grid-2" style="margin-bottom:14px">
         <div class="form-group" style="margin:0">
           <label class="form-label" style="font-weight:700">New Date for Month ${firstPending.monthNum}</label>
-          <input class="form-input" id="sft-new-date" type="date" value="${firstPendingDate}" onchange="previewShiftFutureDates()"/>
+          <input class="form-input" id="sft-new-date" type="date" value="${firstPendingDate}" onchange="previewShiftFutureDates('${firstPending.id}')"/>
         </div>
         <div class="form-group" style="margin:0">
-          <label class="form-label" style="font-weight:700">Or Add Delay (Days)</label>
+          <label class="form-label" style="font-weight:700">Or Add Delay in Days</label>
           <div style="display:flex;gap:6px">
             ${[7, 14, 21, 28].map(d => `
-              <button type="button" class="btn btn-ghost btn-sm" style="background:#f1f5f9;font-size:11px;padding:4px 8px" onclick="applyShiftDays(${d})">+${d}d</button>
+              <button type="button" class="btn btn-ghost btn-sm" style="background:#f1f5f9;font-size:11px;padding:4px 8px;font-weight:700" onclick="applyShiftDays(${d}, '${firstPending.id}')">+${d}d</button>
             `).join('')}
           </div>
         </div>
@@ -4643,40 +4877,45 @@ function showShiftFutureTimelineModal() {
       <div style="margin-bottom:16px">
         <label class="form-label" style="font-weight:700">Upcoming Visits Reschedule Preview</label>
         <div id="sft-preview-table" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;max-height:220px;overflow-y:auto;font-size:12px">
-          <!-- Populated by previewShiftFutureDates -->
+          <!-- Populated dynamically -->
         </div>
       </div>
 
       <!-- Actions -->
       <div style="display:flex;gap:10px;justify-content:flex-end;padding-top:12px;border-top:1px solid #f1f5f9">
         <button type="button" class="btn btn-ghost" onclick="closeOrthoModal()">Cancel</button>
-        <button type="button" class="btn btn-primary" style="background:#d97706;border:none;font-weight:700" onclick="confirmShiftFutureTimeline()">⏩ Confirm &amp; Shift Timeline</button>
+        <button type="button" class="btn btn-primary" style="background:#d97706;border:none;font-weight:700" onclick="confirmShiftFutureTimeline('${firstPending.id}')">⏩ Confirm &amp; Shift Timeline</button>
       </div>
     </div>
   `;
 
   document.body.appendChild(modalOverlay);
-  previewShiftFutureDates();
+  previewShiftFutureDates(firstPending.id);
 }
 
-function applyShiftDays(days) {
+function applyShiftDays(days, startVisitId) {
   const dateInput = document.getElementById('sft-new-date');
   if (!dateInput) return;
   const current = dateInput.value || todayISO();
   dateInput.value = addDaysToDate(current, days);
-  previewShiftFutureDates();
+  previewShiftFutureDates(startVisitId);
 }
 
-function previewShiftFutureDates() {
+function previewShiftFutureDates(startVisitId) {
   const p = activePt;
   if (!p) return;
   const visits = p.orthoVisits || [];
   const plan = p.orthoTreatmentPlan || {};
   const intervalDays = Number(plan.intervalDays || 28);
 
-  const pendingVisits = visits.filter(v => v.status === 'Pending').sort((a, b) => {
+  let pendingVisits = visits.filter(v => v.status === 'Pending').sort((a, b) => {
     return (a.plannedDate || a.date || '').localeCompare(b.plannedDate || b.date || '');
   });
+
+  if (startVisitId) {
+    const sIdx = pendingVisits.findIndex(v => String(v.id) === String(startVisitId));
+    if (sIdx >= 0) pendingVisits = pendingVisits.slice(sIdx);
+  }
 
   const newStartDate = (document.getElementById('sft-new-date') || {}).value || todayISO();
   const previewEl = document.getElementById('sft-preview-table');
@@ -4697,7 +4936,7 @@ function previewShiftFutureDates() {
           const newDate = addDaysToDate(newStartDate, i * intervalDays);
           return `
             <tr style="border-bottom:1px solid #f1f5f9">
-              <td style="padding:6px 4px;font-weight:700">Month ${v.monthNum}</td>
+              <td style="padding:6px 4px;font-weight:700">${v.phase === 'retention' ? `🛡️ Retention` : `Month ${v.monthNum}`}</td>
               <td style="padding:6px 4px;color:#94a3b8;text-decoration:line-through">${fmtDate(oldDate)}</td>
               <td style="padding:6px 4px;color:#d97706;font-weight:700">➡️ ${fmtDate(newDate)}</td>
             </tr>
@@ -4708,7 +4947,7 @@ function previewShiftFutureDates() {
   `;
 }
 
-async function confirmShiftFutureTimeline() {
+async function confirmShiftFutureTimeline(startVisitId) {
   const p = activePt;
   if (!p) return;
   const idx = DATA.patients.findIndex(x => x.id === p.id);
@@ -4719,9 +4958,14 @@ async function confirmShiftFutureTimeline() {
   const newStartDate = (document.getElementById('sft-new-date') || {}).value || todayISO();
 
   const visits = DATA.patients[idx].orthoVisits || [];
-  const pendingVisits = visits.filter(v => v.status === 'Pending').sort((a, b) => {
+  let pendingVisits = visits.filter(v => v.status === 'Pending').sort((a, b) => {
     return (a.plannedDate || a.date || '').localeCompare(b.plannedDate || b.date || '');
   });
+
+  if (startVisitId) {
+    const sIdx = pendingVisits.findIndex(v => String(v.id) === String(startVisitId));
+    if (sIdx >= 0) pendingVisits = pendingVisits.slice(sIdx);
+  }
 
   pendingVisits.forEach((v, i) => {
     const newDate = addDaysToDate(newStartDate, i * intervalDays);
@@ -4738,7 +4982,67 @@ async function confirmShiftFutureTimeline() {
 }
 
 /* ══════════════════════════════════════════════════════
-   VISIT MODAL (PLANNED VS ACTUAL FOLLOW-UP)
+   5. AUTOMATIC RETENTION PHASE GENERATION
+══════════════════════════════════════════════════════ */
+async function initiateOrthoRetentionPhase(debondDate) {
+  const p = activePt;
+  if (!p) return;
+  const idx = DATA.patients.findIndex(x => x.id === p.id);
+  if (idx < 0) return;
+
+  const baseDate = debondDate || todayISO();
+  if (!DATA.patients[idx].orthoVisits) DATA.patients[idx].orthoVisits = [];
+  const visits = DATA.patients[idx].orthoVisits;
+
+  // Check if retention visits already exist
+  const existingRetention = visits.filter(v => v.phase === 'retention');
+  if (existingRetention.length > 0) {
+    if (!confirm('Retention phase visits already exist. Do you want to re-generate the standard retention milestone timeline (1M, 3M, 6M, 12M)?')) {
+      return;
+    }
+  }
+
+  const retentionMilestones = [
+    { label: '1 Month Post-Debond', days: 30, interval: '1 Month' },
+    { label: '3 Months Post-Debond', days: 90, interval: '3 Months' },
+    { label: '6 Months Post-Debond', days: 180, interval: '6 Months' },
+    { label: '12 Months Post-Debond', days: 365, interval: '12 Months' }
+  ];
+
+  retentionMilestones.forEach(m => {
+    const targetDate = addDaysToDate(baseDate, m.days);
+    visits.push({
+      id: 'ov_ret_' + m.days + '_' + Date.now().toString().slice(-4),
+      phase: 'retention',
+      retentionInterval: m.interval,
+      status: 'Pending',
+      plannedDate: targetDate,
+      date: targetDate,
+      retainerType: 'Hawley / Essix Retainer',
+      retainerFit: 'Excellent',
+      retainerBreakage: 'None',
+      retainerCompliance: 'Full-time (>20 hrs/day)',
+      procedures: ['Retainer'],
+      selectedTeeth: [],
+      amountPaid: 0,
+      notes: `${m.label} checkup. Assess occlusion, retainer fit & stability.`,
+      clinicalObjective: `Retention Phase (${m.interval})`,
+      remarks: 'Bring retainers to appointment',
+      nextAppt: '',
+      photos: [],
+      createdAt: new Date().toISOString()
+    });
+  });
+
+  DATA.patients[idx].orthoVisits = visits;
+  activePt = DATA.patients[idx];
+  await saveData();
+  renderOrthoDetailTab();
+  alert('🛡️ 4 Retention Milestone checkups (1M, 3M, 6M, 12M) generated successfully!');
+}
+
+/* ══════════════════════════════════════════════════════
+   2. MONTHLY VISIT MODAL (FDI TEETH & 8-PHOTO PROTOCOL)
 ══════════════════════════════════════════════════════ */
 function showOrthoMonthlyVisitModal(visitId) {
   const p = activePt;
@@ -4747,20 +5051,18 @@ function showOrthoMonthlyVisitModal(visitId) {
   const plan = p.orthoTreatmentPlan || {};
   const intervalDays = Number(plan.intervalDays || 28);
   
-  // Clean visitId parameter
   const targetId = (visitId && visitId !== 'undefined' && visitId !== 'null') ? String(visitId) : '';
   const existing = targetId ? visits.find(v => String(v.id) === targetId) : null;
   const isEdit = !!existing;
   const isPending = existing ? existing.status === 'Pending' : false;
+  const isRetention = existing ? existing.phase === 'retention' : false;
 
   const dateVal = existing ? (existing.date || existing.plannedDate || todayISO()) : todayISO();
   const archVal = existing ? (existing.arch || 'Upper & Lower') : 'Upper & Lower';
   
-  // Preload actual wires or fallback to planned wires
   const wireUpperVal = existing ? (existing.wireUpper || existing.wire || existing.plannedWireUpper || '') : '';
   const wireLowerVal = existing ? (existing.wireLower || existing.plannedWireLower || '') : '';
   
-  // Robust procedure extraction (actual or fallback to planned)
   let selectedProcs = [];
   if (existing) {
     if (Array.isArray(existing.procedures) && existing.procedures.length > 0) {
@@ -4774,14 +5076,13 @@ function showOrthoMonthlyVisitModal(visitId) {
     }
   }
 
+  const selectedTeeth = existing && Array.isArray(existing.selectedTeeth) ? existing.selectedTeeth.slice() : [];
   const amountVal = existing ? (existing.amountPaid !== undefined && existing.amountPaid !== null && existing.amountPaid !== 0 ? existing.amountPaid : (existing.paid || '')) : '';
   const notesVal = existing ? (existing.notes || '') : '';
   const nextApptVal = existing ? (existing.nextAppt || (isPending ? addDaysToDate(dateVal, intervalDays) : '')) : addDaysToDate(todayISO(), intervalDays);
   const photosList = existing && Array.isArray(existing.photos) ? existing.photos.slice() : (existing && existing.photos ? [existing.photos] : []);
 
   const monthNumDisplay = existing ? (existing.monthNum || 1) : (visits.length + 1);
-
-  // Planned target details
   const hasPlannedDetails = existing && (existing.plannedWireUpper || existing.plannedWireLower || (existing.plannedProcedures && existing.plannedProcedures.length) || existing.clinicalObjective);
 
   closeOrthoModal();
@@ -4791,17 +5092,18 @@ function showOrthoMonthlyVisitModal(visitId) {
   modalOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px);box-sizing:border-box';
   
   modalOverlay.innerHTML = `
-    <div class="card card-body" style="width:100%;max-width:680px;max-height:90vh;overflow-y:auto;background:#ffffff;border-radius:14px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2),0 10px 10px -5px rgba(0,0,0,0.1);border:1px solid #e2e8f0;padding:20px;box-sizing:border-box" onclick="event.stopPropagation()">
+    <div class="card card-body" style="width:100%;max-width:760px;max-height:92vh;overflow-y:auto;background:#ffffff;border-radius:14px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);border:1px solid #e2e8f0;padding:20px;box-sizing:border-box" onclick="event.stopPropagation()">
+      <!-- Modal Header -->
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1.5px solid #f1f5f9">
         <div style="font-size:16px;font-weight:800;color:#7c3aed;display:flex;align-items:center;gap:6px">
-          <span>${isPending ? '📝' : (isEdit ? '✏️' : '➕')}</span>
-          <span>${isPending ? `Record Follow-up (Month ${monthNumDisplay})` : (isEdit ? `Edit Monthly Visit (Month ${monthNumDisplay})` : `New Monthly Visit (Month ${monthNumDisplay})`)}</span>
+          <span>${isRetention ? '🛡️' : (isPending ? '📝' : (isEdit ? '✏️' : '➕'))}</span>
+          <span>${isRetention ? `Retention Checkup (${existing.retentionInterval || 'Milestone'})` : (isPending ? `Record Follow-up (Month ${monthNumDisplay})` : (isEdit ? `Edit Monthly Visit (Month ${monthNumDisplay})` : `New Monthly Visit (Month ${monthNumDisplay})`))}</span>
         </div>
         <button type="button" class="btn btn-ghost btn-sm" style="font-size:16px;line-height:1;padding:4px 8px" onclick="closeOrthoModal()">✕</button>
       </div>
 
       <!-- Planned vs Actual Target Comparison Box -->
-      ${hasPlannedDetails ? `
+      ${hasPlannedDetails && !isRetention ? `
         <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px">
           <div style="font-weight:800;color:#6b21a8;margin-bottom:4px">🎯 Planned Targets for this Stage:</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;color:#475569">
@@ -4814,6 +5116,7 @@ function showOrthoMonthlyVisitModal(visitId) {
         </div>
       ` : ''}
 
+      <!-- Basic Visit Fields -->
       <div class="form-grid-2">
         <div class="form-group">
           <label class="form-label" style="font-weight:600">Visit Date <span style="color:#dc2626">*</span></label>
@@ -4827,30 +5130,113 @@ function showOrthoMonthlyVisitModal(visitId) {
             <option value="Lower" ${archVal === 'Lower' ? 'selected' : ''}>Lower Arch</option>
           </select>
         </div>
-        <div class="form-group">
-          <label class="form-label" style="font-weight:600">Actual Wire Upper (dropdown)</label>
-          <select class="form-input" id="ovm-wire-upper">
-            <option value="">None / No Wire</option>
-            ${ORTHO_WIRES_LIST.map(w => `<option value="${w}" ${wireUpperVal.toLowerCase().replace(/\s/g,'') === w.toLowerCase().replace(/\s/g,'') ? 'selected' : ''}>${w}</option>`).join('')}
-          </select>
+      </div>
+
+      ${!isRetention ? `
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600">Actual Wire Upper</label>
+            <select class="form-input" id="ovm-wire-upper">
+              <option value="">None / No Wire</option>
+              ${ORTHO_WIRES_LIST.map(w => `<option value="${w}" ${wireUpperVal.toLowerCase().replace(/\s/g,'') === w.toLowerCase().replace(/\s/g,'') ? 'selected' : ''}>${w}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600">Actual Wire Lower</label>
+            <select class="form-input" id="ovm-wire-lower">
+              <option value="">None / No Wire</option>
+              ${ORTHO_WIRES_LIST.map(w => `<option value="${w}" ${wireLowerVal.toLowerCase().replace(/\s/g,'') === w.toLowerCase().replace(/\s/g,'') ? 'selected' : ''}>${w}</option>`).join('')}
+            </select>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label" style="font-weight:600">Actual Wire Lower (dropdown)</label>
-          <select class="form-input" id="ovm-wire-lower">
-            <option value="">None / No Wire</option>
-            ${ORTHO_WIRES_LIST.map(w => `<option value="${w}" ${wireLowerVal.toLowerCase().replace(/\s/g,'') === w.toLowerCase().replace(/\s/g,'') ? 'selected' : ''}>${w}</option>`).join('')}
-          </select>
+      ` : `
+        <!-- Retention Specific Evaluation -->
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;margin-bottom:14px">
+          <div style="font-weight:800;color:#15803d;margin-bottom:8px;font-size:12px">🛡️ Retainer Evaluation Fields</div>
+          <div class="form-grid-2">
+            <div class="form-group" style="margin:0">
+              <label class="form-label" style="font-size:11px;font-weight:700">Retainer Type</label>
+              <select class="form-input" id="ovm-ret-type" style="font-size:12px">
+                <option ${existing && existing.retainerType === 'Hawley' ? 'selected' : ''}>Hawley</option>
+                <option ${existing && existing.retainerType === 'Essix / Clear Retainer' ? 'selected' : 'selected'}>Essix / Clear Retainer</option>
+                <option ${existing && existing.retainerType === 'Fixed Lingual Retainer' ? 'selected' : ''}>Fixed Lingual Retainer</option>
+                <option ${existing && existing.retainerType === 'Fixed + Essix Combo' ? 'selected' : ''}>Fixed + Essix Combo</option>
+                <option ${existing && existing.retainerType === 'Vivera' ? 'selected' : ''}>Vivera</option>
+                <option ${existing && existing.retainerType === 'Begg' ? 'selected' : ''}>Begg</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label" style="font-size:11px;font-weight:700">Fit Condition</label>
+              <select class="form-input" id="ovm-ret-fit" style="font-size:12px">
+                <option ${existing && existing.retainerFit === 'Excellent / Snug' ? 'selected' : 'selected'}>Excellent / Snug</option>
+                <option ${existing && existing.retainerFit === 'Tight' ? 'selected' : ''}>Tight</option>
+                <option ${existing && existing.retainerFit === 'Loose' ? 'selected' : ''}>Loose</option>
+                <option ${existing && existing.retainerFit === 'Distorted / Ill-fitting' ? 'selected' : ''}>Distorted / Ill-fitting</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-top:8px">
+              <label class="form-label" style="font-size:11px;font-weight:700">Breakage / Damage</label>
+              <select class="form-input" id="ovm-ret-breakage" style="font-size:12px">
+                <option ${existing && existing.retainerBreakage === 'None / Intact' ? 'selected' : 'selected'}>None / Intact</option>
+                <option ${existing && existing.retainerBreakage === 'Wire Broken' ? 'selected' : ''}>Wire Broken</option>
+                <option ${existing && existing.retainerBreakage === 'Acrylic Cracked' ? 'selected' : ''}>Acrylic Cracked</option>
+                <option ${existing && existing.retainerBreakage === 'Debonded Pad' ? 'selected' : ''}>Debonded Pad</option>
+                <option ${existing && existing.retainerBreakage === 'Lost Retainer' ? 'selected' : ''}>Lost Retainer</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-top:8px">
+              <label class="form-label" style="font-size:11px;font-weight:700">Patient Compliance</label>
+              <select class="form-input" id="ovm-ret-compliance" style="font-size:12px">
+                <option ${existing && existing.retainerCompliance === 'Full-time (>20 hrs/day)' ? 'selected' : 'selected'}>Full-time (>20 hrs/day)</option>
+                <option ${existing && existing.retainerCompliance === 'Night-time only' ? 'selected' : ''}>Night-time only</option>
+                <option ${existing && existing.retainerCompliance === 'Irregular wear' ? 'selected' : ''}>Irregular wear</option>
+                <option ${existing && existing.retainerCompliance === 'Not wearing' ? 'selected' : ''}>Not wearing</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      `}
+
+      <!-- Procedure Multi-Select -->
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label" style="font-weight:600">Procedures Performed <span style="font-size:11px;font-weight:normal;color:#64748b">(click to select multiple)</span></label>
+        <div id="ovm-proc-chips" style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">
+          ${ORTHO_PROCEDURES_LIST.map(pr => {
+            const active = selectedProcs.some(sp => sp.toLowerCase() === pr.toLowerCase() || sp.toLowerCase().includes(pr.toLowerCase()));
+            return `<button type="button" class="btn btn-sm ovm-proc-chip ${active ? 'active' : ''}" data-proc="${pr}" style="${active ? 'background:#7c3aed;color:#ffffff;border:1px solid #6d28d9;' : 'background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;'};font-size:11px;padding:4px 10px;border-radius:99px;cursor:pointer;font-weight:600" onclick="toggleOrthoProcChip(this, '${pr}')">${active ? '✓ ' : ''}${pr}</button>`;
+          }).join('')}
         </div>
       </div>
 
-      <!-- Procedure Multi-Select -->
-      <div class="form-group" style="margin-bottom:14px">
-        <label class="form-label" style="font-weight:600">Procedures Done <span style="font-size:11px;font-weight:normal;color:#64748b">(click tags to select multiple)</span></label>
-        <div id="ovm-proc-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
-          ${ORTHO_PROCEDURES_LIST.map(pr => {
-            const active = selectedProcs.some(sp => sp.toLowerCase() === pr.toLowerCase() || sp.toLowerCase().includes(pr.toLowerCase()));
-            return `<button type="button" class="btn btn-sm ovm-proc-chip ${active ? 'active' : ''}" data-proc="${pr}" style="${active ? 'background:#7c3aed;color:#ffffff;border:1px solid #6d28d9;' : 'background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;'};font-size:11px;padding:5px 12px;border-radius:99px;cursor:pointer;font-weight:600" onclick="toggleOrthoProcChip(this, '${pr}')">${active ? '✓ ' : ''}${pr}</button>`;
-          }).join('')}
+      <!-- Tooth-wise FDI Selection -->
+      <div class="form-group" style="margin-bottom:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <label class="form-label" style="margin:0;font-weight:700;font-size:12px;color:#334155">🦷 Tooth-wise Procedure Selection (FDI)</label>
+          <div style="display:flex;gap:4px">
+            <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px;background:#fff;border:1px solid #cbd5e1" onclick="orthoFDI_quickSelect('upper')">Upper (18-28)</button>
+            <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px;background:#fff;border:1px solid #cbd5e1" onclick="orthoFDI_quickSelect('lower')">Lower (48-38)</button>
+            <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px;background:#fff;border:1px solid #cbd5e1" onclick="orthoFDI_quickSelect('anterior')">Anteriors</button>
+            <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px;background:#fff;border:1px solid #cbd5e1;color:#dc2626" onclick="orthoFDI_quickSelect('clear')">Clear</button>
+          </div>
+        </div>
+        <!-- FDI Chart Layout -->
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:center">
+          <!-- Upper Arch -->
+          <div style="display:flex;gap:3px;align-items:center">
+            <span style="font-size:9px;font-weight:800;color:#64748b;margin-right:2px">UR</span>
+            ${[18,17,16,15,14,13,12,11].map(t => `<button type="button" class="fdi-btn ${selectedTeeth.includes(String(t)) ? 'active' : ''}" data-tooth="${t}" style="${selectedTeeth.includes(String(t)) ? 'background:#7c3aed;color:#fff;border-color:#6d28d9' : 'background:#fff;color:#334155;border:1px solid #cbd5e1'};width:26px;height:24px;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;padding:0" onclick="orthoFDI_toggleTooth(this)">${t}</button>`).join('')}
+            <span style="border-right:2px solid #94a3b8;height:20px;margin:0 2px"></span>
+            ${[21,22,23,24,25,26,27,28].map(t => `<button type="button" class="fdi-btn ${selectedTeeth.includes(String(t)) ? 'active' : ''}" data-tooth="${t}" style="${selectedTeeth.includes(String(t)) ? 'background:#7c3aed;color:#fff;border-color:#6d28d9' : 'background:#fff;color:#334155;border:1px solid #cbd5e1'};width:26px;height:24px;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;padding:0" onclick="orthoFDI_toggleTooth(this)">${t}</button>`).join('')}
+            <span style="font-size:9px;font-weight:800;color:#64748b;margin-left:2px">UL</span>
+          </div>
+          <!-- Lower Arch -->
+          <div style="display:flex;gap:3px;align-items:center">
+            <span style="font-size:9px;font-weight:800;color:#64748b;margin-right:2px">LR</span>
+            ${[48,47,46,45,44,43,42,41].map(t => `<button type="button" class="fdi-btn ${selectedTeeth.includes(String(t)) ? 'active' : ''}" data-tooth="${t}" style="${selectedTeeth.includes(String(t)) ? 'background:#7c3aed;color:#fff;border-color:#6d28d9' : 'background:#fff;color:#334155;border:1px solid #cbd5e1'};width:26px;height:24px;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;padding:0" onclick="orthoFDI_toggleTooth(this)">${t}</button>`).join('')}
+            <span style="border-right:2px solid #94a3b8;height:20px;margin:0 2px"></span>
+            ${[31,32,33,34,35,36,37,38].map(t => `<button type="button" class="fdi-btn ${selectedTeeth.includes(String(t)) ? 'active' : ''}" data-tooth="${t}" style="${selectedTeeth.includes(String(t)) ? 'background:#7c3aed;color:#fff;border-color:#6d28d9' : 'background:#fff;color:#334155;border:1px solid #cbd5e1'};width:26px;height:24px;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;padding:0" onclick="orthoFDI_toggleTooth(this)">${t}</button>`).join('')}
+            <span style="font-size:9px;font-weight:800;color:#64748b;margin-left:2px">LL</span>
+          </div>
         </div>
       </div>
 
@@ -4858,7 +5244,7 @@ function showOrthoMonthlyVisitModal(visitId) {
       <div class="form-grid-2" style="margin-bottom:12px">
         <div class="form-group">
           <label class="form-label" style="font-weight:600">Amount Paid (₹)</label>
-          <input class="form-input" id="ovm-amount" type="number" min="0" value="${amountVal}" placeholder="e.g. 1200" oninput="recalcOrthoModalBalance('${targetId}')"/>
+          <input class="form-input" id="ovm-amount" type="number" min="0" value="${amountVal}" placeholder="e.g. 1500" oninput="recalcOrthoModalBalance('${targetId}')"/>
         </div>
         <div class="form-group">
           <label class="form-label" style="font-weight:600">Balance After Payment (auto)</label>
@@ -4871,12 +5257,12 @@ function showOrthoMonthlyVisitModal(visitId) {
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
           <label class="form-label" style="margin:0;font-weight:600">Clinical Notes</label>
           <div style="display:flex;gap:4px;flex-wrap:wrap">
-            ${['Good progress', 'Hygiene advised', 'Space closure', 'Aligning', 'Elastics wear advised'].map(qn => `
+            ${['Good progress', 'Hygiene advised', 'Space closure', 'Aligning well', 'Elastics wear advised', 'Retainer fit good'].map(qn => `
               <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px;background:#f1f5f9" onclick="appendOrthoModalNote('${qn}')">+${qn}</button>
             `).join('')}
           </div>
         </div>
-        <textarea class="form-input" id="ovm-notes" rows="2" placeholder="Clinical observations, wire engagement, hygiene instructions...">${esc(notesVal)}</textarea>
+        <textarea class="form-input" id="ovm-notes" rows="2" placeholder="Clinical observations, wire engagement, torque notes...">${esc(notesVal)}</textarea>
       </div>
 
       <div class="form-grid-2" style="margin-bottom:14px">
@@ -4885,10 +5271,18 @@ function showOrthoMonthlyVisitModal(visitId) {
           <input class="form-input" id="ovm-next-appt" type="date" value="${nextApptVal}"/>
         </div>
         <div class="form-group">
-          <label class="form-label" style="font-weight:600">Upload Photos (optional)</label>
+          <label class="form-label" style="font-weight:600">Upload Progress Photos (8-Photo Protocol)</label>
           <input class="form-input" type="file" id="ovm-photo-input" accept="image/*" multiple onchange="handleOrthoModalPhotoUpload(this)"/>
-          <div id="ovm-photos-preview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>
         </div>
+      </div>
+
+      <!-- 8-Photo Protocol Slot Selector Helper -->
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-bottom:14px">
+        <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:4px">📸 8-Photo Orthodontic Views Protocol:</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;font-size:10px">
+          ${ORTHO_PHOTO_PROTOCOLS.map(pr => `<span style="background:#fff;border:1px solid #cbd5e1;padding:2px 6px;border-radius:4px;color:#475569">${pr.label}</span>`).join('')}
+        </div>
+        <div id="ovm-photos-preview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
       </div>
 
       <!-- Actions -->
@@ -4906,6 +5300,45 @@ function showOrthoMonthlyVisitModal(visitId) {
   window._orthoModalPhotos = photosList.slice();
   renderOrthoModalPhotoPreviews();
   recalcOrthoModalBalance(targetId);
+}
+
+function orthoFDI_toggleTooth(btn) {
+  const active = btn.classList.contains('active');
+  if (active) {
+    btn.classList.remove('active');
+    btn.style.background = '#fff';
+    btn.style.color = '#334155';
+    btn.style.borderColor = '#cbd5e1';
+  } else {
+    btn.classList.add('active');
+    btn.style.background = '#7c3aed';
+    btn.style.color = '#fff';
+    btn.style.borderColor = '#6d28d9';
+  }
+}
+
+function orthoFDI_quickSelect(type) {
+  const btns = document.querySelectorAll('.fdi-btn');
+  btns.forEach(btn => {
+    const t = Number(btn.getAttribute('data-tooth'));
+    let select = false;
+    if (type === 'upper') select = (t >= 11 && t <= 28);
+    else if (type === 'lower') select = (t >= 31 && t <= 48);
+    else if (type === 'anterior') select = (t >= 11 && t <= 13) || (t >= 21 && t <= 23) || (t >= 31 && t <= 33) || (t >= 41 && t <= 43);
+    else if (type === 'clear') select = false;
+
+    if (select) {
+      btn.classList.add('active');
+      btn.style.background = '#7c3aed';
+      btn.style.color = '#fff';
+      btn.style.borderColor = '#6d28d9';
+    } else if (type === 'clear') {
+      btn.classList.remove('active');
+      btn.style.background = '#fff';
+      btn.style.color = '#334155';
+      btn.style.borderColor = '#cbd5e1';
+    }
+  });
 }
 
 function toggleOrthoProcChip(btn, procName) {
@@ -4999,7 +5432,7 @@ function renderOrthoModalPhotoPreviews() {
   if (!cont) return;
   const list = window._orthoModalPhotos || [];
   cont.innerHTML = list.map((ph, idx) => `
-    <div style="position:relative;width:54px;height:54px;border-radius:6px;overflow:hidden;border:1px solid #cbd5e1">
+    <div style="position:relative;width:58px;height:58px;border-radius:6px;overflow:hidden;border:1px solid #cbd5e1">
       <img src="${typeof ph === 'string' ? ph : (ph.url || '')}" style="width:100%;height:100%;object-fit:cover" />
       <button type="button" style="position:absolute;top:2px;right:2px;background:rgba(220,38,38,0.85);color:#fff;border:none;border-radius:99px;width:16px;height:16px;font-size:10px;cursor:pointer;line-height:1" onclick="removeOrthoModalPhoto(${idx})">×</button>
     </div>
@@ -5045,9 +5478,21 @@ async function saveOrthoMonthlyVisit(visitId) {
     }
   });
 
+  // Gather selected FDI teeth
+  const selectedTeeth = [];
+  document.querySelectorAll('.fdi-btn.active').forEach(btn => {
+    selectedTeeth.push(btn.getAttribute('data-tooth'));
+  });
+
   const amountVal = Number((document.getElementById('ovm-amount') || {}).value || 0);
   const notesVal = ((document.getElementById('ovm-notes') || {}).value || '').trim();
   const nextApptVal = (document.getElementById('ovm-next-appt') || {}).value || '';
+
+  // Retention fields if present
+  const retType = (document.getElementById('ovm-ret-type') || {}).value || '';
+  const retFit = (document.getElementById('ovm-ret-fit') || {}).value || '';
+  const retBreakage = (document.getElementById('ovm-ret-breakage') || {}).value || '';
+  const retCompliance = (document.getElementById('ovm-ret-compliance') || {}).value || '';
 
   if (!DATA.patients[idx].orthoVisits) {
     DATA.patients[idx].orthoVisits = [];
@@ -5061,12 +5506,17 @@ async function saveOrthoMonthlyVisit(visitId) {
     if (vIdx >= 0) {
       DATA.patients[idx].orthoVisits[vIdx] = {
         ...DATA.patients[idx].orthoVisits[vIdx],
-        status: 'Completed', // Mark status completed upon recording follow-up
+        status: 'Completed',
         date: dateVal,
         arch: archVal,
         wireUpper: wireUpperVal,
         wireLower: wireLowerVal,
         procedures: selectedProcs,
+        selectedTeeth: selectedTeeth,
+        retainerType: retType || DATA.patients[idx].orthoVisits[vIdx].retainerType,
+        retainerFit: retFit || DATA.patients[idx].orthoVisits[vIdx].retainerFit,
+        retainerBreakage: retBreakage || DATA.patients[idx].orthoVisits[vIdx].retainerBreakage,
+        retainerCompliance: retCompliance || DATA.patients[idx].orthoVisits[vIdx].retainerCompliance,
         amountPaid: amountVal,
         notes: notesVal,
         nextAppt: nextApptVal,
@@ -5074,7 +5524,6 @@ async function saveOrthoMonthlyVisit(visitId) {
         updatedAt: new Date().toISOString()
       };
     } else {
-      // If id not found, push as new
       DATA.patients[idx].orthoVisits.push({
         id: targetId || ('ov_' + Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5)),
         status: 'Completed',
@@ -5083,6 +5532,7 @@ async function saveOrthoMonthlyVisit(visitId) {
         wireUpper: wireUpperVal,
         wireLower: wireLowerVal,
         procedures: selectedProcs,
+        selectedTeeth: selectedTeeth,
         amountPaid: amountVal,
         notes: notesVal,
         nextAppt: nextApptVal,
@@ -5100,6 +5550,7 @@ async function saveOrthoMonthlyVisit(visitId) {
       wireUpper: wireUpperVal,
       wireLower: wireLowerVal,
       procedures: selectedProcs,
+      selectedTeeth: selectedTeeth,
       amountPaid: amountVal,
       notes: notesVal,
       nextAppt: nextApptVal,
@@ -5107,6 +5558,16 @@ async function saveOrthoMonthlyVisit(visitId) {
       createdAt: new Date().toISOString()
     };
     DATA.patients[idx].orthoVisits.push(newVisit);
+  }
+
+  // Auto trigger retention phase if Debond procedure was performed!
+  const hasDebond = selectedProcs.some(pr => pr.toLowerCase().includes('debond'));
+  if (hasDebond) {
+    setTimeout(function() {
+      if (confirm('🎉 Debond procedure recorded! Would you like to automatically generate the 4 Retention Follow-up visits (1M, 3M, 6M, 12M)?')) {
+        initiateOrthoRetentionPhase(dateVal);
+      }
+    }, 300);
   }
 
   // Update total paid and next appt on patient's orthoDetails
@@ -5183,19 +5644,167 @@ function convertPatientToOrtho(patientId) {
   renderOrthoDetailTab();
 }
 
-/* ── SEND APPT WA (FIXED) ── */
-function sendApptWA() {
-  const p = activePt;
+/* ══════════════════════════════════════════════════════
+   6. ADVANCED WHATSAPP REMINDER SYSTEM (STUDENT FRIENDLY)
+══════════════════════════════════════════════════════ */
+function showOrthoSmartWAModal(patientId, visitId) {
+  const p = (DATA.patients || []).find(x => x.id === patientId) || activePt;
   if (!p) return;
   const od = p.orthoDetails || {};
   const visits = p.orthoVisits || [];
-  const latestApptVisit = visits.slice().reverse().find(v => !!v.nextAppt);
-  const apptDate = (latestApptVisit ? latestApptVisit.nextAppt : '') || od.nextAppt;
-  if (!apptDate) { alert('Please set next appointment date first.'); return; }
-  const tmpl = DATA.waTemplate || DEFAULT_WA_TEMPLATE;
-  const fmt12hr = t => { if (!t) return ''; const [hh, mm] = t.split(':').map(Number); const ampm = hh >= 12 ? 'PM' : 'AM'; return ((hh % 12) || 12) + ':' + String(mm).padStart(2, '0') + ' ' + ampm; };
-  const msg = tmpl.replace(/{name}/g, p.name).replace(/{date}/g, fmtDate(apptDate)).replace(/{time}/g, fmt12hr(od.nextApptTime || '10:00')).replace(/{doctor}/g, DOCTOR).replace(/{clinic}/g, CLINIC).replace(/{phone}/g, PHONE);
-  window.open('https://wa.me/91' + p.phone.replace(/\D/g, '') + '?text=' + encodeURIComponent(msg), '_blank');
+
+  let apptDate = '';
+  if (visitId) {
+    const v = visits.find(x => String(x.id) === String(visitId));
+    if (v) apptDate = v.nextAppt || v.plannedDate || v.date;
+  }
+  if (!apptDate) {
+    const latestApptVisit = visits.slice().reverse().find(v => !!v.nextAppt);
+    apptDate = (latestApptVisit ? latestApptVisit.nextAppt : '') || od.nextAppt || todayISO();
+  }
+
+  const preferredTiming = od.preferredTiming || 'Evening (4 PM - 7 PM)';
+  const apptTime = od.nextApptTime || '17:00';
+
+  closeOrthoModal();
+
+  const modalOverlay = document.createElement('div');
+  modalOverlay.id = 'ortho-modal-overlay';
+  modalOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px);box-sizing:border-box';
+
+  modalOverlay.innerHTML = `
+    <div class="card card-body" style="width:100%;max-width:580px;max-height:90vh;overflow-y:auto;background:#ffffff;border-radius:14px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.25);border:1px solid #e2e8f0;padding:20px;box-sizing:border-box" onclick="event.stopPropagation()">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1.5px solid #f1f5f9">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:#059669;display:flex;align-items:center;gap:6px">
+            <span>📲</span>
+            <span>WhatsApp Orthodontic Reminder System</span>
+          </div>
+          <div style="font-size:12px;color:#64748b;margin-top:2px">Patient: <strong>${esc(p.name)}</strong> (${p.phone})</div>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" style="font-size:16px;line-height:1;padding:4px 8px" onclick="closeOrthoModal()">✕</button>
+      </div>
+
+      <!-- One-Tap Reminder Timing Presets -->
+      <div style="margin-bottom:14px">
+        <label class="form-label" style="font-weight:700">⚡ One-Tap Reminder Timing</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" class="btn btn-ghost btn-sm" style="background:#f1f5f9;font-size:11px;padding:4px 10px;font-weight:700" onclick="orthoWA_setApptDate(0)">Today</button>
+          <button type="button" class="btn btn-ghost btn-sm" style="background:#f1f5f9;font-size:11px;padding:4px 10px;font-weight:700" onclick="orthoWA_setApptDate(1)">Tomorrow</button>
+          <button type="button" class="btn btn-ghost btn-sm" style="background:#f1f5f9;font-size:11px;padding:4px 10px;font-weight:700" onclick="orthoWA_setApptDate(2)">2 Days Before</button>
+          <button type="button" class="btn btn-ghost btn-sm" style="background:#f1f5f9;font-size:11px;padding:4px 10px;font-weight:700" onclick="orthoWA_setApptDate(3)">3 Days Before</button>
+          <button type="button" class="btn btn-ghost btn-sm" style="background:#f1f5f9;font-size:11px;padding:4px 10px;font-weight:700" onclick="orthoWA_setApptDate(7)">7 Days Before</button>
+        </div>
+      </div>
+
+      <div class="form-grid-2" style="margin-bottom:14px">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-weight:700">Appointment Date</label>
+          <input class="form-input" id="owa-date" type="date" value="${apptDate}" onchange="orthoWA_updatePreview('${p.id}')"/>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-weight:700">Preferred Class / School Timing</label>
+          <select class="form-input" id="owa-timing" onchange="orthoWA_updatePreview('${p.id}')">
+            <option value="Evening (4 PM - 7 PM)" ${preferredTiming.includes('Evening') ? 'selected' : ''}>🌆 Evening (4 PM - 7 PM)</option>
+            <option value="Coaching after 5 PM" ${preferredTiming.includes('Coaching') ? 'selected' : ''}>📚 Coaching after 5 PM</option>
+            <option value="Afternoon (12 PM - 4 PM)" ${preferredTiming.includes('Afternoon') ? 'selected' : ''}>☀️ Afternoon (12 PM - 4 PM)</option>
+            <option value="Morning (9 AM - 12 PM)" ${preferredTiming.includes('Morning') ? 'selected' : ''}>🌅 Morning (9 AM - 12 PM)</option>
+            <option value="Custom Time" ${preferredTiming.includes('Custom') ? 'selected' : ''}>✏️ Custom Timing</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Message Template Selection -->
+      <div style="margin-bottom:14px">
+        <label class="form-label" style="font-weight:700">Select Message Template</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" class="btn btn-sm owa-tpl-btn active" data-tpl="appt" style="background:#059669;color:#fff;font-size:11px;padding:4px 10px;font-weight:700" onclick="orthoWA_setTemplate('appt', '${p.id}')">📅 Appointment Reminder</button>
+          <button type="button" class="btn btn-sm owa-tpl-btn" data-tpl="resched" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;font-size:11px;padding:4px 10px;font-weight:700" onclick="orthoWA_setTemplate('resched', '${p.id}')">🔄 Reschedule Request</button>
+          <button type="button" class="btn btn-sm owa-tpl-btn" data-tpl="retainer" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;font-size:11px;padding:4px 10px;font-weight:700" onclick="orthoWA_setTemplate('retainer', '${p.id}')">🛡️ Retainer Checkup</button>
+        </div>
+      </div>
+
+      <!-- Live Message Preview Box -->
+      <div style="margin-bottom:16px">
+        <label class="form-label" style="font-weight:700">WhatsApp Message Live Preview</label>
+        <textarea class="form-input" id="owa-preview" rows="6" style="background:#f8fafc;font-size:12px;font-family:inherit;line-height:1.4"></textarea>
+      </div>
+
+      <!-- Actions -->
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button type="button" class="btn btn-ghost" onclick="closeOrthoModal()">Cancel</button>
+        <button type="button" class="btn btn-wa" style="font-weight:800;padding:10px 20px" onclick="orthoWA_sendDirect('${p.phone}')">📲 Open WhatsApp (One-Tap)</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modalOverlay);
+  window._orthoActiveTemplate = 'appt';
+  orthoWA_updatePreview(p.id);
+}
+
+function orthoWA_setApptDate(daysOffset) {
+  const dateInput = document.getElementById('owa-date');
+  if (!dateInput) return;
+  dateInput.value = addDaysToDate(todayISO(), daysOffset);
+  const p = activePt;
+  if (p) orthoWA_updatePreview(p.id);
+}
+
+function orthoWA_setTemplate(tplKey, patientId) {
+  window._orthoActiveTemplate = tplKey;
+  document.querySelectorAll('.owa-tpl-btn').forEach(btn => {
+    if (btn.getAttribute('data-tpl') === tplKey) {
+      btn.style.background = '#059669';
+      btn.style.color = '#fff';
+      btn.classList.add('active');
+    } else {
+      btn.style.background = '#f1f5f9';
+      btn.style.color = '#334155';
+      btn.style.border = '1px solid #cbd5e1';
+      btn.classList.remove('active');
+    }
+  });
+  orthoWA_updatePreview(patientId);
+}
+
+function orthoWA_updatePreview(patientId) {
+  const p = (DATA.patients || []).find(x => x.id === patientId) || activePt;
+  if (!p) return;
+  const dateVal = (document.getElementById('owa-date') || {}).value || todayISO();
+  const timingVal = (document.getElementById('owa-timing') || {}).value || 'Evening (4 PM - 7 PM)';
+  const tplKey = window._orthoActiveTemplate || 'appt';
+  const previewEl = document.getElementById('owa-preview');
+  if (!previewEl) return;
+
+  let text = '';
+  if (tplKey === 'appt') {
+    text = `Hello ${p.name},\n\nThis is a reminder from The Home of Smiles Dental Clinic.\n\nYour orthodontic appointment is scheduled on ${fmtDate(dateVal)} (${timingVal}).\n\nPlease reply if your coaching/school timing has changed.\n\n— Dr. Tanmay Jain\nThe Home of Smiles Dental Clinic\nPhone: ${PHONE}`;
+  } else if (tplKey === 'resched') {
+    text = `Hello ${p.name},\n\nPlease let us know your available timing this week so we can adjust your orthodontic appointment according to your classes.\n\nReply with your preferred day & time.\n\n— Dr. Tanmay Jain\nThe Home of Smiles Dental Clinic\nPhone: ${PHONE}`;
+  } else if (tplKey === 'retainer') {
+    text = `Hello ${p.name},\n\nThis is a reminder for your post-treatment Orthodontic Retainer checkup on ${fmtDate(dateVal)} (${timingVal}).\n\nPlease bring your retainers along for the checkup.\n\n— Dr. Tanmay Jain\nThe Home of Smiles Dental Clinic\nPhone: ${PHONE}`;
+  }
+
+  previewEl.value = text;
+}
+
+function orthoWA_sendDirect(phone) {
+  const previewEl = document.getElementById('owa-preview');
+  if (!previewEl) return;
+  const msg = previewEl.value;
+  const cleanPhone = (phone || '').replace(/\D/g, '');
+  window.open('https://wa.me/91' + cleanPhone + '?text=' + encodeURIComponent(msg), '_blank');
+}
+
+function sendApptWA() {
+  const p = activePt;
+  if (!p) return;
+  showOrthoSmartWAModal(p.id);
+}
+
+function sendOrthoPageSmartWA(patientId) {
+  showOrthoSmartWAModal(patientId);
 }
 
 /* ── PRINTABLE ORTHODONTIC PROGRESS SHEET ── */
