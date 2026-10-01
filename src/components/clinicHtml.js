@@ -350,6 +350,9 @@ export const CLINIC_HTML = `
         <button class="group-tab-btn" id="gtab-docs" onclick="switchGroup('docs')">
           <span class="g-icon">📋</span>Docs
         </button>
+        <button class="group-tab-btn" id="gtab-lab" onclick="switchGroup('lab')">
+          <span class="g-icon">🧪</span>Lab Work
+        </button>
         <button class="group-tab-btn" id="gtab-history" onclick="switchGroup('history')">
           <span class="g-icon">📅</span>History
         </button>
@@ -366,6 +369,7 @@ export const CLINIC_HTML = `
       <div id="tab-content-tooth-chart"   style="display:none"></div>
       <div id="tab-content-tx-plan"       style="display:none"></div>
       <div id="tab-content-rct" style="display:none"><div id="rct-tracker-content"></div></div>
+      <div id="tab-content-lab" style="display:none"></div>
       <div id="tab-content-timeline" style="display:none;padding:8px 0"></div>
       <div id="tab-content-commlog" style="display:none"></div>
       <div id="tab-content-failures" style="display:none"></div>

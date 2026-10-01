@@ -1758,7 +1758,7 @@ function renderPatientList() {
               <div class="avatar" style="width:33px;height:33px;background:${avatarColor(p.name)};font-size:12px">${p.name[0]}</div>
               <div>
                 <div style="font-weight:600;font-size:13.5px">${hlText(p.name, q)}
-                  ${p.type==='ortho'?'<span class="badge badge-ortho" style="font-size:9px;vertical-align:middle">Ortho</span>':''}${(function(){var hv=(p.treatmentPlan||[]).filter(function(i){return i.status==='planned';}).reduce(function(s,i){return s+Number(i.estimatedCost||0);},0);return hv>=5000?'<span style="font-size:9px;vertical-align:middle;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;padding:1px 6px;font-weight:700">🔥 HIGH VALUE</span>':'';})()} 
+                  ${p.type==='ortho'?'<span class="badge badge-ortho" style="font-size:9px;vertical-align:middle">Ortho</span>':''}${(typeof ptLab_getPatientBadge==='function'?ptLab_getPatientBadge(p):'')}${(function(){var hv=(p.treatmentPlan||[]).filter(function(i){return i.status==='planned';}).reduce(function(s,i){return s+Number(i.estimatedCost||0);},0);return hv>=5000?'<span style="font-size:9px;vertical-align:middle;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;padding:1px 6px;font-weight:700">🔥 HIGH VALUE</span>':'';})()} 
 ${(p.noShowCount>=2)?'<span style="font-size:9px;vertical-align:middle;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;padding:1px 6px;font-weight:700">⚠ '+p.noShowCount+' no-shows</span>':''}                </div>
                 <div style="font-size:11px;color:#64748b">${p.dob ? calcPreciseAge(p.dob) || (p.age+'y') : (p.age ? p.age+'y' : '')} • ${p.gender}${p.dob?' • '+fmtDob(p.dob):''} • <span style="color:${getLastVisitDate(p)?'#059669':'#94a3b8'}">🕐 ${getLastVisitDate(p)?fmtDate(getLastVisitDate(p)):'No visits'}</span></div>
               </div>
@@ -2026,6 +2026,7 @@ function fmt12hr(t) {
 }
 
 function renderPatientHeader() {
+  setTimeout(function(){ if (typeof ptLab_renderQuickStatusBanner === 'function') ptLab_renderQuickStatusBanner(); }, 20);
   const p = activePt;
   const total = (p.billing||[]).reduce(function(s,b){ return s+Number(b.totalAmount||b.amount||0); },0);
   const paid  = (p.billing||[]).reduce(function(s,b){ return s+Number(b.paidAmount||(b.paid?(b.totalAmount||b.amount||0):0)); },0);
@@ -2110,6 +2111,7 @@ function switchTab(tab) {
     perio:            ()=>{ document.getElementById('perio-chart-content').innerHTML=''; perio_render(); },
     photos:           ()=>{ photoProtocol_renderSession(activePt.photoSessions && activePt.photoSessions.length ? activePt.photoSessions[activePt.photoSessions.length-1].id : 'new'); },
     rct:              ()=>{ rct_renderTracker(); },
+    lab:              ()=>{ if (typeof ptLab_renderTab === 'function') ptLab_renderTab(); },
     timeline:         ()=>{ timeline_render(activePt?activePt.id:null); },
     commlog:          commLog_render,
     failures:         failureLog_render,
@@ -23959,6 +23961,11 @@ var TAB_GROUPS = {
     tabs: ['prescriptions','tx-plan','commlog','failures','ortho-detail','ortho-visits','aligner-detail'],
     def:  'prescriptions'
   },
+  lab: {
+    icon:'🧪', label:'Lab Work',
+    tabs: ['lab'],
+    def:  'lab'
+  },
   history: {
     icon:'📅', label:'History',
     tabs: ['timeline'],
@@ -23981,6 +23988,7 @@ var TAB_LABELS = {
   'ortho-detail':   '🦷 Ortho',
   'ortho-visits':   '📅 Visits',
   'aligner-detail': '💎 Aligner',
+  'lab':            '🧪 Lab Work',
   'timeline':       '📅 Timeline',
 };
 
@@ -29823,4 +29831,1227 @@ if (typeof window !== 'undefined') {
     window.addEventListener('DOMContentLoaded', dash_initDashboard);
     window.addEventListener('load', dash_initDashboard);
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   LAB WORK + PATIENT FILE INTEGRATION 2.0
+   App: HomeOfSmiles v72 — Unified Dental Lab Management
+   ══════════════════════════════════════════════════════════════════ */
+
+var LAB_STATUS_FLOW = [
+  'Draft',
+  'Sent to Lab',
+  'Lab Working',
+  'Ready at Lab',
+  'Received',
+  'Trial / Fitting',
+  'Delivered',
+  'Completed',
+  'Cancelled'
+];
+
+var LAB_CASE_TYPES = [
+  'Crown',
+  'Bridge',
+  'Veneer',
+  'Inlay',
+  'Onlay',
+  'Overlay',
+  'Implant Crown',
+  'Implant Prosthesis',
+  'Denture',
+  'RPD',
+  'Night Guard',
+  'Retainer',
+  'Ortho Appliance',
+  'Aligner',
+  'Other'
+];
+
+var VITA_SHADES = [
+  'A1', 'A2', 'A3', 'A3.5', 'A4',
+  'B1', 'B2', 'B3', 'B4',
+  'C1', 'C2', 'C3', 'C4',
+  'D2', 'D3', 'D4',
+  'BL1', 'BL2', 'BL3', 'BL4'
+];
+
+var LAB_MATERIALS = [
+  'PFM',
+  'Zirconia',
+  'E-max',
+  'Lithium Disilicate',
+  'Composite',
+  'Acrylic',
+  'Metal',
+  'PMMA',
+  'Hybrid Ceramic',
+  'Other'
+];
+
+var DEFAULT_FREQUENT_LABS = [
+  { name: 'Kota Dental Lab', contact: 'Ramesh Sharma', phone: '9829012345', whatsapp: '9829012345', address: 'Kota, Rajasthan' },
+  { name: 'Apex CAD/CAM Studio', contact: 'Dr. Verma', phone: '9829054321', whatsapp: '9829054321', address: 'Jaipur, Rajasthan' },
+  { name: 'Dentec Precision Lab', contact: 'Manoj Ji', phone: '9414011223', whatsapp: '9414011223', address: 'Indore, MP' }
+];
+
+var lab_filterState = {
+  status: 'all',
+  labName: 'all',
+  workType: 'all',
+  search: ''
+};
+
+/* ── Helpers ── */
+function lab_getCaseById(id) {
+  return (DATA.labJobs || []).find(function(j) { return j.id === id; }) || null;
+}
+
+function lab_isCaseOverdue(j) {
+  if (!j || !j.dueDate) return false;
+  var doneStatuses = ['Received', 'Trial / Fitting', 'Delivered', 'Completed', 'Cancelled', 'received', 'delivered'];
+  if (doneStatuses.indexOf(j.status) >= 0) return false;
+  return j.dueDate < todayISO();
+}
+
+function lab_calcDaysOverdue(dueDate) {
+  if (!dueDate) return 0;
+  var d1 = new Date(dueDate + 'T00:00:00');
+  var d2 = new Date(todayISO() + 'T00:00:00');
+  var diffTime = d2 - d1;
+  var diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays > 0 ? diffDays : 0;
+}
+
+function lab_getStatusMeta(status, dueDate) {
+  var overdue = lab_isCaseOverdue({ status: status, dueDate: dueDate });
+  if (overdue) {
+    return { label: '🔴 Overdue (' + lab_calcDaysOverdue(dueDate) + 'd)', bg: '#fee2e2', color: '#991b1b', border: '#fecaca', icon: '🔴' };
+  }
+  var map = {
+    'Draft': { label: '📝 Draft', bg: '#f1f5f9', color: '#475569', border: '#e2e8f0', icon: '📝' },
+    'Sent to Lab': { label: '📤 Sent to Lab', bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe', icon: '📤' },
+    'Lab Working': { label: '🔬 Lab Working', bg: '#fffbeb', color: '#b45309', border: '#fde68a', icon: '🔬' },
+    'Ready at Lab': { label: '🟢 Ready at Lab', bg: '#ecfdf5', color: '#047857', border: '#a7f3d0', icon: '🟢' },
+    'Received': { label: '📦 Received in Clinic', bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', icon: '📦' },
+    'Trial / Fitting': { label: '🦷 Trial / Fitting', bg: '#fdf4ff', color: '#86198f', border: '#f5d0fe', icon: '🦷' },
+    'Delivered': { label: '✅ Delivered to Patient', bg: '#f0fdfa', color: '#0f766e', border: '#99f6e4', icon: '✅' },
+    'Completed': { label: '🎉 Case Completed', bg: '#ecfdf5', color: '#065f46', border: '#6ee7b7', icon: '🎉' },
+    'Cancelled': { label: '✕ Cancelled', bg: '#f8fafc', color: '#64748b', border: '#cbd5e1', icon: '✕' },
+    'pending': { label: '⏳ Pending', bg: '#fffbeb', color: '#b45309', border: '#fde68a', icon: '⏳' },
+    'received': { label: '📦 Received', bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', icon: '📦' },
+    'delivered': { label: '✅ Delivered', bg: '#f0fdfa', color: '#0f766e', border: '#99f6e4', icon: '✅' }
+  };
+  return map[status] || { label: status || 'Pending', bg: '#f1f5f9', color: '#475569', border: '#e2e8f0', icon: '🔬' };
+}
+
+/* ── WhatsApp Communication Generators ── */
+function lab_getWhatsAppLabURL(job) {
+  if (!job) return '';
+  var phone = (job.labWhatsApp || job.labPhone || '').replace(/[^0-9]/g, '');
+  if (!phone) return '';
+  if (phone.length === 10) phone = '91' + phone;
+
+  var text = 'Hello, regarding ' + (job.patientName || 'patient') + "'s " + (job.workType || 'dental work') +
+    (job.toothNo ? ' for tooth ' + job.toothNo : '') + '.\n' +
+    (job.shade ? 'Shade: ' + job.shade + '\n' : '') +
+    (job.material ? 'Material: ' + job.material + '\n' : '') +
+    'Sent on: ' + (job.sentDate ? fmtDate(job.sentDate) : 'recent') + '.\n' +
+    'Please update me regarding the current status and expected delivery.\n\n' +
+    '— Dr. Tanmay Jain\n' + (typeof CLINIC !== 'undefined' ? CLINIC : 'The Home of Smiles Dental Clinic') + '\n' +
+    '📞 ' + (typeof PHONE !== 'undefined' ? PHONE : '9257562207');
+
+  return 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text);
+}
+
+function lab_getWhatsAppPatientURL(job) {
+  if (!job) return '';
+  var pt = (DATA.patients || []).find(function(p) { return p.id === job.patientId || p.name === job.patientName; });
+  var rawPhone = (pt && pt.phone) ? pt.phone : (job.patientPhone || '');
+  var phone = rawPhone.replace(/[^0-9]/g, '');
+  if (!phone) return '';
+  if (phone.length === 10) phone = '91' + phone;
+
+  var text = 'Hello ' + (job.patientName || 'Patient') + ',\n' +
+    'Your dental work (' + (job.workType || 'Restoration') + (job.toothNo ? ' for tooth #' + job.toothNo : '') + ') is ready at our clinic!\n' +
+    'Please contact us or schedule your appointment for the next step.\n\n' +
+    '— Dr. Tanmay Jain\n' + (typeof CLINIC !== 'undefined' ? CLINIC : 'The Home of Smiles Dental Clinic') + '\n' +
+    '📞 ' + (typeof PHONE !== 'undefined' ? PHONE : '9257562207');
+
+  return 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   1. PATIENT FILE — LAB WORK SECTION & QUICK STATUS
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Top Patient Profile Quick Banner (Item 14) */
+function ptLab_renderQuickStatusBanner() {
+  var bannerId = 'pt-active-lab-banner';
+  var existing = document.getElementById(bannerId);
+  if (existing) existing.remove();
+
+  if (!activePt) return;
+  var jobs = (DATA.labJobs || []).filter(function(j) {
+    return j.patientId === activePt.id || (j.patientName && j.patientName.toLowerCase() === activePt.name.toLowerCase());
+  });
+
+  var activeJobs = jobs.filter(function(j) {
+    return !['Delivered', 'Completed', 'Cancelled', 'delivered'].includes(j.status);
+  });
+
+  if (activeJobs.length === 0) return;
+
+  var header = document.getElementById('pt-detail-header');
+  if (!header) return;
+
+  var mostCritical = activeJobs[0];
+  var isOverdue = lab_isCaseOverdue(mostCritical);
+  var isReady = mostCritical.status === 'Ready at Lab' || mostCritical.status === 'Received';
+  var meta = lab_getStatusMeta(mostCritical.status, mostCritical.dueDate);
+
+  var banner = document.createElement('div');
+  banner.id = bannerId;
+  banner.style.cssText = 'background:' + (isOverdue ? '#fef2f2;border:1.5px solid #fecaca;color:#991b1b;' : isReady ? '#f0fdf4;border:1.5px solid #bbf7d0;color:#166534;' : '#eff6ff;border:1.5px solid #bfdbfe;color:#1e40af;') +
+    'border-radius:12px;padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.03);';
+
+  banner.innerHTML =
+    '<div style="display:flex;align-items:center;gap:10px">' +
+      '<span style="font-size:20px">' + (isOverdue ? '🔴' : isReady ? '🟢' : '🧪') + '</span>' +
+      '<div>' +
+        '<div style="font-weight:800;font-size:13.5px">' +
+          (isOverdue ? 'OVERDUE LAB WORK (' + lab_calcDaysOverdue(mostCritical.dueDate) + ' DAYS): ' : 'ACTIVE LAB CASE: ') +
+          esc(mostCritical.workType || 'Crown') + (mostCritical.toothNo ? ' — Tooth ' + esc(mostCritical.toothNo) : '') +
+        '</div>' +
+        '<div style="font-size:12px;opacity:0.9;margin-top:2px">' +
+          (mostCritical.shade ? 'Shade: <strong>' + esc(mostCritical.shade) + '</strong> &bull; ' : '') +
+          (mostCritical.material ? 'Material: <strong>' + esc(mostCritical.material) + '</strong> &bull; ' : '') +
+          'Status: <strong>' + meta.label + '</strong>' +
+          (mostCritical.dueDate ? ' (Expected: ' + fmtDate(mostCritical.dueDate) + ')' : '') +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;align-items:center;gap:8px">' +
+      '<button class="btn btn-sm" style="background:#fff;border:1px solid currentColor;color:inherit;font-weight:700;font-size:11px;padding:4px 10px;border-radius:6px" onclick="event.stopPropagation();switchGroup(\'lab\',\'lab\')">View in Lab Tab →</button>' +
+    '</div>';
+
+  banner.onclick = function() {
+    switchGroup('lab', 'lab');
+  };
+
+  var statsStrip = document.getElementById('pt-quick-stats');
+  if (statsStrip && statsStrip.nextSibling) {
+    statsStrip.parentNode.insertBefore(banner, statsStrip.nextSibling);
+  } else if (header.nextSibling) {
+    header.parentNode.insertBefore(banner, header.nextSibling);
+  }
+}
+
+/* Patient Lab Work Tab Main Renderer (Item 1 & 32) */
+function ptLab_renderTab() {
+  var container = document.getElementById('tab-content-lab');
+  if (!container) return;
+  if (!activePt) {
+    container.innerHTML = '<div class="empty">No patient selected</div>';
+    return;
+  }
+
+  var p = activePt;
+  var jobs = (DATA.labJobs || []).filter(function(j) {
+    return j.patientId === p.id || (j.patientName && j.patientName.toLowerCase() === p.name.toLowerCase());
+  });
+
+  var activeCases = jobs.filter(function(j) {
+    return !['Delivered', 'Completed', 'Cancelled', 'delivered'].includes(j.status);
+  });
+  var completedCases = jobs.filter(function(j) {
+    return ['Delivered', 'Completed', 'delivered'].includes(j.status);
+  });
+
+  // Calculate Lab Balance for this patient
+  var totalCost = jobs.reduce(function(sum, j) { return sum + Number(j.cost || 0); }, 0);
+  var totalPaid = jobs.reduce(function(sum, j) { return sum + Number(j.paidAmount || (j.paid ? j.cost : 0) || 0); }, 0);
+  var labBalance = Math.max(0, totalCost - totalPaid);
+
+  // Next expected return date
+  var upcomingJobs = activeCases.filter(function(j) { return j.dueDate; }).sort(function(a, b) {
+    return (a.dueDate || '').localeCompare(b.dueDate || '');
+  });
+  var nextReturn = upcomingJobs.length ? fmtDate(upcomingJobs[0].dueDate) : 'None';
+
+  var html = '';
+
+  /* ── 1. Top Summary Banner (Item 32) ── */
+  html += '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:16px 20px;margin-bottom:20px;box-shadow:0 2px 4px rgba(0,0,0,0.02)">';
+  html += '  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px">';
+  html += '    <div>';
+  html += '      <h3 style="margin:0;font-size:16px;font-weight:800;color:#1e3a5f;display:flex;align-items:center;gap:8px">🧪 Patient Lab Cases</h3>';
+  html += '      <p style="margin:2px 0 0;font-size:12px;color:#64748b">Unified clinical lab work tracking & records for ' + esc(p.name) + '</p>';
+  html += '    </div>';
+  html += '    <button class="btn btn-primary" onclick="ptLab_showNewCaseModal(\'' + p.id + '\')" style="font-weight:700;display:flex;align-items:center;gap:6px">';
+  html += '      <span>+</span> New Lab Case';
+  html += '    </button>';
+  html += '  </div>';
+
+  html += '  <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px">';
+  html += '    <div style="background:#eff6ff;padding:10px 14px;border-radius:10px;border:1px solid #dbeafe">';
+  html += '      <div style="font-size:11px;font-weight:700;color:#1d4ed8">ACTIVE CASES</div>';
+  html += '      <div style="font-size:18px;font-weight:800;color:#1e40af;margin-top:2px">' + activeCases.length + '</div>';
+  html += '    </div>';
+  html += '    <div style="background:#ecfdf5;padding:10px 14px;border-radius:10px;border:1px solid #d1fae5">';
+  html += '      <div style="font-size:11px;font-weight:700;color:#059669">COMPLETED</div>';
+  html += '      <div style="font-size:18px;font-weight:800;color:#065f46;margin-top:2px">' + completedCases.length + '</div>';
+  html += '    </div>';
+  html += '    <div style="background:#fffbeb;padding:10px 14px;border-radius:10px;border:1px solid #fef3c7">';
+  html += '      <div style="font-size:11px;font-weight:700;color:#b45309">LAB BALANCE</div>';
+  html += '      <div style="font-size:18px;font-weight:800;color:#92400e;margin-top:2px">₹' + labBalance.toLocaleString('en-IN') + '</div>';
+  html += '    </div>';
+  html += '    <div style="background:#f5f3ff;padding:10px 14px;border-radius:10px;border:1px solid #ede9fe">';
+  html += '      <div style="font-size:11px;font-weight:700;color:#7c3aed">NEXT RETURN</div>';
+  html += '      <div style="font-size:14px;font-weight:800;color:#5b21b6;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + nextReturn + '</div>';
+  html += '    </div>';
+  html += '  </div>';
+  html += '</div>';
+
+  /* ── 2. Active Lab Cases (Item 1) ── */
+  html += '<div style="margin-bottom:24px">';
+  html += '  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
+  html += '    <h4 style="margin:0;font-size:14px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:0.5px">Active Cases (' + activeCases.length + ')</h4>';
+  html += '  </div>';
+
+  if (activeCases.length === 0) {
+    html += '  <div style="background:#f8fafc;border:1.5px dashed #cbd5e1;border-radius:12px;padding:32px 20px;text-align:center">';
+    html += '    <div style="font-size:28px;margin-bottom:8px">🧪</div>';
+    html += '    <div style="font-weight:700;color:#475569;font-size:14px">No active lab cases for this patient</div>';
+    html += '    <div style="font-size:12px;color:#94a3b8;margin-top:4px">Click "+ New Lab Case" to create and dispatch dental lab prescriptions.</div>';
+    html += '    <button class="btn btn-sm btn-primary" style="margin-top:14px" onclick="ptLab_showNewCaseModal(\'' + p.id + '\')">+ Create New Lab Case</button>';
+    html += '  </div>';
+  } else {
+    html += '  <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(340px, 1fr));gap:14px">';
+    for (var i = 0; i < activeCases.length; i++) {
+      html += ptLab_renderCaseCard(activeCases[i]);
+    }
+    html += '  </div>';
+  }
+  html += '</div>';
+
+  /* ── 3. Completed / Past Lab Cases (Item 30) ── */
+  if (completedCases.length > 0) {
+    html += '<div style="margin-top:30px">';
+    html += '  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
+    html += '    <h4 style="margin:0;font-size:14px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px">Completed & Delivered History (' + completedCases.length + ')</h4>';
+    html += '  </div>';
+    html += '  <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(340px, 1fr));gap:14px">';
+    for (var j = 0; j < completedCases.length; j++) {
+      html += ptLab_renderCaseCard(completedCases[j], true);
+    }
+    html += '  </div>';
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+}
+
+/* Render Individual Lab Case Card (Item 1 & 24 & 25) */
+function ptLab_renderCaseCard(c, isHistory) {
+  var meta = lab_getStatusMeta(c.status, c.dueDate);
+  var isOverdue = lab_isCaseOverdue(c);
+  var daysOverdue = isOverdue ? lab_calcDaysOverdue(c.dueDate) : 0;
+
+  var cost = Number(c.cost || 0);
+  var paid = Number(c.paidAmount || (c.paid ? c.cost : 0) || 0);
+  var balance = Math.max(0, cost - paid);
+
+  var waLabURL = lab_getWhatsAppLabURL(c);
+  var waPtURL = lab_getWhatsAppPatientURL(c);
+
+  var html = '';
+  html += '<div class="card" style="border:1px solid ' + (isOverdue ? '#fca5a5' : '#e2e8f0') + ';border-radius:12px;padding:16px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.03);position:relative">';
+
+  // Top header of card
+  html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:12px">';
+  html += '  <div>';
+  html += '    <div style="font-size:15px;font-weight:800;color:#1e3a5f;display:flex;align-items:center;gap:6px">';
+  html += '      <span>' + esc(c.workType || 'Prosthesis') + '</span>';
+  if (c.toothNo) {
+    html += '      <span style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px">Tooth ' + esc(c.toothNo) + '</span>';
+  }
+  html += '    </div>';
+  html += '    <div style="font-size:11px;color:#94a3b8;font-family:monospace;margin-top:2px">ID: ' + esc(c.id) + '</div>';
+  html += '  </div>';
+  html += '  <span class="badge" style="background:' + meta.bg + ';color:' + meta.color + ';border:1px solid ' + meta.border + ';font-size:11px;font-weight:700;padding:4px 9px;border-radius:20px;white-space:nowrap">' + meta.label + '</span>';
+  html += '</div>';
+
+  // Details Grid
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;background:#f8fafc;padding:10px 12px;border-radius:8px;margin-bottom:12px;border:1px solid #f1f5f9">';
+  html += '  <div><span style="color:#64748b">🏭 Lab:</span> <strong style="color:#1e293b">' + esc(c.labName || 'Standard Lab') + '</strong></div>';
+  html += '  <div><span style="color:#64748b">🎨 Shade:</span> <strong style="color:#7c3aed">' + esc(c.shade || 'Natural') + (c.shadeSystem ? ' (' + esc(c.shadeSystem) + ')' : '') + '</strong></div>';
+  html += '  <div><span style="color:#64748b">🦷 Material:</span> <strong style="color:#1e293b">' + esc(c.material || 'Standard') + '</strong></div>';
+  html += '  <div><span style="color:#64748b">📅 Sent:</span> <strong style="color:#1e293b">' + (c.sentDate ? fmtDate(c.sentDate) : '—') + '</strong></div>';
+  html += '  <div style="grid-column:1 / -1"><span style="color:#64748b">📅 Expected Return:</span> <strong style="color:' + (isOverdue ? '#dc2626' : '#1e293b') + '">' + (c.dueDate ? fmtDate(c.dueDate) : '—') + '</strong>' +
+    (isOverdue ? ' <span style="color:#dc2626;font-weight:800;font-size:11px">(' + daysOverdue + ' days overdue)</span>' : '') + '</div>';
+
+  if (c.receivedDate) {
+    html += '  <div style="grid-column:1 / -1"><span style="color:#64748b">📦 Received on:</span> <strong style="color:#059669">' + fmtDate(c.receivedDate) + '</strong></div>';
+  }
+  if (c.deliveredDate) {
+    html += '  <div style="grid-column:1 / -1"><span style="color:#64748b">✅ Delivered on:</span> <strong style="color:#0f766e">' + fmtDate(c.deliveredDate) + '</strong></div>';
+  }
+  html += '</div>';
+
+  // Shade Details / Extended notes if any
+  if (c.cervicalShade || c.incisalShade || c.characterisation || c.shadePhoto) {
+    html += '<div style="background:#faf5ff;border:1px solid #ede9fe;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:11.5px">';
+    html += '  <div style="font-weight:700;color:#6b21a8;margin-bottom:4px;display:flex;align-items:center;gap:4px">🎨 Shade Specifications:</div>';
+    html += '  <div style="display:flex;flex-wrap:wrap;gap:8px;color:#4c1d95">';
+    if (c.cervicalShade) html += '<span>Cervical: <strong>' + esc(c.cervicalShade) + '</strong></span>';
+    if (c.incisalShade) html += '<span>Incisal: <strong>' + esc(c.incisalShade) + '</strong></span>';
+    if (c.characterisation) html += '<span>Notes: ' + esc(c.characterisation) + '</span>';
+    html += '  </div>';
+    if (c.shadePhoto) {
+      html += '  <div style="margin-top:6px;display:flex;align-items:center;gap:6px">';
+      html += '    <a href="' + c.shadePhoto + '" target="_blank" style="font-size:11px;color:#7c3aed;font-weight:700;text-decoration:underline">📷 View Attached Shade Photo</a>';
+      html += '  </div>';
+    }
+    html += '</div>';
+  }
+
+  // Lab Prescription Notes
+  if (c.notes) {
+    html += '<div style="background:#f8fafc;border-left:3px solid #3b82f6;padding:6px 10px;font-size:11.5px;color:#334155;margin-bottom:12px;white-space:pre-wrap;border-radius:0 6px 6px 0">' +
+      esc(c.notes) +
+    '</div>';
+  }
+
+  // Financial Separation Indicator (Items 19, 20, 21)
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;background:#f0fdf4;padding:8px 12px;border-radius:8px;margin-bottom:12px;border:1px solid #dcfce7;font-size:12px">';
+  html += '  <div>';
+  html += '    <span style="color:#166534;font-weight:700">💰 Lab Cost:</span> ₹' + cost.toLocaleString('en-IN') + ' &bull; ';
+  html += '    <span style="color:#15803d">Paid:</span> ₹' + paid.toLocaleString('en-IN');
+  if (balance > 0) {
+    html += ' &bull; <span style="color:#b91c1c;font-weight:800">Bal: ₹' + balance.toLocaleString('en-IN') + '</span>';
+  } else {
+    html += ' &bull; <span style="color:#15803d;font-weight:700">✓ Settled</span>';
+  }
+  html += '  </div>';
+  html += '  <button class="btn btn-sm" style="background:#fff;border:1px solid #86efac;color:#15803d;padding:2px 8px;font-size:11px;font-weight:700" onclick="ptLab_showPaymentModal(\'' + c.id + '\')">+ Payment</button>';
+  html += '</div>';
+
+  // Action Buttons Bar (Items 1, 13, 22, 23, 29)
+  html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px solid #f1f5f9">';
+  html += '  <button class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:11px;font-weight:700;padding:5px 9px" onclick="ptLab_updateStatusModal(\'' + c.id + '\')">Update Status</button>';
+  html += '  <button class="btn btn-sm" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;font-size:11px;font-weight:700;padding:5px 9px" onclick="ptLab_showNewCaseModal(\'' + c.patientId + '\', \'' + c.id + '\')">Edit</button>';
+
+  if (c.labPhone) {
+    html += '  <a href="tel:' + c.labPhone + '" class="btn btn-sm" style="background:#f8fafc;color:#475569;border:1px solid #e2e8f0;font-size:11px;padding:5px 9px;text-decoration:none" title="Call Laboratory">📞 Call Lab</a>';
+  }
+  if (waLabURL) {
+    html += '  <a href="' + waLabURL + '" target="_blank" class="btn btn-sm" style="background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;font-size:11px;padding:5px 9px;text-decoration:none" title="Message Laboratory">💬 WhatsApp Lab</a>';
+  }
+
+  if (c.status === 'Ready at Lab' || c.status === 'Received' || c.status === 'received') {
+    if (waPtURL) {
+      html += '  <a href="' + waPtURL + '" target="_blank" class="btn btn-sm" style="background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;font-size:11px;padding:5px 9px;text-decoration:none" title="Notify Patient on WhatsApp">💬 WhatsApp Patient</a>';
+    }
+    html += '  <button class="btn btn-sm" style="background:#f0fdfa;color:#0d9488;border:1px solid #99f6e4;font-size:11px;padding:5px 9px" onclick="ptLab_linkAppointment(\'' + c.id + '\')">📅 Schedule Visit</button>';
+  }
+
+  if (c.status === 'Trial / Fitting' || c.status === 'Received') {
+    html += '  <button class="btn btn-sm" style="background:#fdf4ff;color:#86198f;border:1px solid #f5d0fe;font-size:11px;padding:5px 9px" onclick="ptLab_showDeliveryModal(\'' + c.id + '\')">Mark Delivered</button>';
+  }
+
+  html += '  <button class="btn btn-red btn-sm" style="margin-left:auto;padding:3px 7px;font-size:11px" onclick="ptLab_deleteCase(\'' + c.id + '\')" title="Delete Case">🗑️</button>';
+  html += '</div>';
+
+  html += '</div>';
+  return html;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   2. NEW / EDIT LAB CASE MODAL (Directly from Patient or Master)
+   ══════════════════════════════════════════════════════════════════ */
+function ptLab_showNewCaseModal(patientId, caseId) {
+  var oldModal = document.getElementById('pt-lab-case-modal');
+  if (oldModal) oldModal.remove();
+
+  var p = null;
+  if (patientId) {
+    p = (DATA.patients || []).find(function(x) { return x.id === patientId; });
+  } else if (activePt) {
+    p = activePt;
+  }
+
+  var editCase = caseId ? lab_getCaseById(caseId) : null;
+  if (editCase && !p && editCase.patientId) {
+    p = (DATA.patients || []).find(function(x) { return x.id === editCase.patientId; });
+  }
+
+  var isEdit = !!editCase;
+  var selectedType = editCase ? (editCase.workType || 'Crown') : 'Crown';
+  var selectedMaterial = editCase ? (editCase.material || 'E-max') : 'E-max';
+  var selectedShade = editCase ? (editCase.shade || 'A2') : 'A2';
+  var selectedShadeSystem = editCase ? (editCase.shadeSystem || 'Vita Classical') : 'Vita Classical';
+  var selectedTeeth = editCase ? (editCase.toothNo || '') : '';
+  var selectedLab = editCase ? (editCase.labName || '') : (DEFAULT_FREQUENT_LABS[0].name);
+
+  var modal = document.createElement('div');
+  modal.id = 'pt-lab-case-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);';
+
+  var html = '';
+  html += '<div style="background:#fff;border-radius:16px;max-width:760px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);animation:popIn 0.2s ease-out;display:flex;flex-direction:column">';
+
+  // Modal Header
+  html += '<div style="padding:18px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;background:#f8fafc;border-radius:16px 16px 0 0">';
+  html += '  <div>';
+  html += '    <h3 style="margin:0;font-size:17px;font-weight:800;color:#1e3a5f;display:flex;align-items:center;gap:8px">🧪 ' + (isEdit ? 'Edit Lab Case #' + editCase.id : 'New Dental Lab Case Prescription') + '</h3>';
+  html += '    <p style="margin:2px 0 0;font-size:12px;color:#64748b">Directly attached to ' + (p ? esc(p.name) + ' (' + p.id + ')' : 'Patient Clinical Record') + '</p>';
+  html += '  </div>';
+  html += '  <button onclick="document.getElementById(\'pt-lab-case-modal\').remove()" style="background:none;border:none;font-size:18px;color:#64748b;cursor:pointer;font-weight:700">✕</button>';
+  html += '</div>';
+
+  // Modal Body
+  html += '<div style="padding:22px 24px;display:flex;flex-direction:column;gap:18px">';
+
+  // 1. Patient Info Bar (Pre-filled, non-editable or editable)
+  html += '  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">';
+  html += '    <div>';
+  html += '      <div style="font-size:11px;font-weight:700;color:#1d4ed8;text-transform:uppercase">Primary Clinical Patient</div>';
+  html += '      <div style="font-size:15px;font-weight:800;color:#1e3a5f">' + (p ? esc(p.name) : '<input class="form-input" id="labform-ptname" placeholder="Patient Name" value="' + (editCase ? esc(editCase.patientName || '') : '') + '">') + '</div>';
+  html += '    </div>';
+  html += '    <div style="font-size:12px;color:#475569">';
+  if (p) {
+    html += '      <span>ID: <strong style="font-family:monospace">' + p.id + '</strong></span> &bull; ';
+    html += '      <span>Phone: <strong>' + p.phone + '</strong></span>';
+    html += '      <input type="hidden" id="labform-ptid" value="' + p.id + '">';
+    html += '      <input type="hidden" id="labform-ptname" value="' + esc(p.name) + '">';
+    html += '      <input type="hidden" id="labform-ptphone" value="' + esc(p.phone) + '">';
+  } else {
+    html += '      <input class="form-input" id="labform-ptid" placeholder="Patient ID (optional)" value="' + (editCase ? esc(editCase.patientId || '') : '') + '">';
+    html += '      <input class="form-input" id="labform-ptphone" placeholder="Phone" style="margin-top:4px" value="' + (editCase ? esc(editCase.patientPhone || '') : '') + '">';
+  }
+  html += '    </div>';
+  html += '  </div>';
+
+  // 2. Case Type & Material
+  html += '  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">';
+  html += '    <div class="form-group">';
+  html += '      <label class="form-label" style="font-weight:700;color:#1e3a5f">Case Type <span style="color:#dc2626">*</span></label>';
+  html += '      <select class="form-input" id="labform-worktype" style="font-weight:600">';
+  LAB_CASE_TYPES.forEach(function(ct) {
+    html += '        <option value="' + ct + '" ' + (selectedType === ct ? 'selected' : '') + '>' + ct + '</option>';
+  });
+  html += '      </select>';
+  html += '    </div>';
+
+  html += '    <div class="form-group">';
+  html += '      <label class="form-label" style="font-weight:700;color:#1e3a5f">Material <span style="color:#dc2626">*</span></label>';
+  html += '      <select class="form-input" id="labform-material" style="font-weight:600">';
+  LAB_MATERIALS.forEach(function(mat) {
+    html += '        <option value="' + mat + '" ' + (selectedMaterial === mat ? 'selected' : '') + '>' + mat + '</option>';
+  });
+  html += '      </select>';
+  html += '    </div>';
+  html += '  </div>';
+
+  // 3. Tooth Selection (FDI Chart & Free Input)
+  html += '  <div class="form-group" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px">';
+  html += '    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  html += '      <label class="form-label" style="font-weight:700;color:#1e3a5f;margin:0">🦷 Tooth Selection (FDI Notation)</label>';
+  html += '      <span style="font-size:11px;color:#64748b">Tap teeth or type bridge range (e.g. 11-13)</span>';
+  html += '    </div>';
+
+  html += '    <div style="margin-bottom:10px">';
+  html += '      <input class="form-input" id="labform-tooth" value="' + esc(selectedTeeth) + '" placeholder="e.g. 11, 21 or 11-13" style="font-weight:700;font-size:13px;letter-spacing:0.5px">';
+  html += '    </div>';
+
+  // Interactive FDI Tooth Quadrant Buttons
+  html += '    <div style="display:flex;flex-direction:column;gap:6px;background:#fff;padding:10px;border-radius:8px;border:1px solid #e2e8f0;user-select:none">';
+  // Upper Jaw
+  html += '      <div style="display:flex;justify-content:center;gap:12px;border-bottom:1px dashed #cbd5e1;padding-bottom:6px">';
+  html += '        <div style="display:flex;gap:3px;align-items:center"><span style="font-size:9px;font-weight:800;color:#94a3b8;margin-right:2px">Q1</span>' +
+                   [18,17,16,15,14,13,12,11].map(function(t){ return '<button type="button" class="dash2-tooth-btn' + (selectedTeeth.includes(String(t)) ? ' active' : '') + '" onclick="ptLab_toggleTooth(' + t + ')">' + t + '</button>'; }).join('') + '</div>';
+  html += '        <div style="display:flex;gap:3px;align-items:center">' +
+                   [21,22,23,24,25,26,27,28].map(function(t){ return '<button type="button" class="dash2-tooth-btn' + (selectedTeeth.includes(String(t)) ? ' active' : '') + '" onclick="ptLab_toggleTooth(' + t + ')">' + t + '</button>'; }).join('') + '<span style="font-size:9px;font-weight:800;color:#94a3b8;margin-left:2px">Q2</span></div>';
+  html += '      </div>';
+  // Lower Jaw
+  html += '      <div style="display:flex;justify-content:center;gap:12px;padding-top:2px">';
+  html += '        <div style="display:flex;gap:3px;align-items:center"><span style="font-size:9px;font-weight:800;color:#94a3b8;margin-right:2px">Q4</span>' +
+                   [48,47,46,45,44,43,42,41].map(function(t){ return '<button type="button" class="dash2-tooth-btn' + (selectedTeeth.includes(String(t)) ? ' active' : '') + '" onclick="ptLab_toggleTooth(' + t + ')">' + t + '</button>'; }).join('') + '</div>';
+  html += '        <div style="display:flex;gap:3px;align-items:center">' +
+                   [31,32,33,34,35,36,37,38].map(function(t){ return '<button type="button" class="dash2-tooth-btn' + (selectedTeeth.includes(String(t)) ? ' active' : '') + '" onclick="ptLab_toggleTooth(' + t + ')">' + t + '</button>'; }).join('') + '<span style="font-size:9px;font-weight:800;color:#94a3b8;margin-left:2px">Q3</span></div>';
+  html += '      </div>';
+  html += '    </div>';
+  html += '  </div>';
+
+  // 4. Shade Selection Palette & Extended Shade (Items 5 & 6)
+  html += '  <div class="form-group" style="background:#faf5ff;border:1px solid #ede9fe;border-radius:10px;padding:14px">';
+  html += '    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  html += '      <label class="form-label" style="font-weight:700;color:#6b21a8;margin:0">🎨 Shade Selection & Specifications</label>';
+  html += '      <span style="font-size:11px;color:#7c3aed">Select VITA Shade or Custom</span>';
+  html += '    </div>';
+
+  // Quick Shade Chips
+  html += '    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">';
+  VITA_SHADES.forEach(function(sh) {
+    html += '      <button type="button" class="dash2-shade-chip' + (selectedShade === sh ? ' active' : '') + '" onclick="ptLab_selectShade(\'' + sh + '\')">' + sh + '</button>';
+  });
+  html += '    </div>';
+
+  html += '    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));gap:10px">';
+  html += '      <div>';
+  html += '        <label style="font-size:11px;font-weight:700;color:#6b21a8">Main Shade</label>';
+  html += '        <input class="form-input" id="labform-shade" value="' + esc(selectedShade) + '" placeholder="e.g. A2" style="font-weight:700">';
+  html += '      </div>';
+  html += '      <div>';
+  html += '        <label style="font-size:11px;font-weight:700;color:#6b21a8">Shade System</label>';
+  html += '        <select class="form-input" id="labform-shadesystem">';
+  ['Vita Classical', 'Vita 3D-Master', 'Ivoclar Bleach', 'Custom'].forEach(function(sys) {
+    html += '          <option value="' + sys + '" ' + (selectedShadeSystem === sys ? 'selected' : '') + '>' + sys + '</option>';
+  });
+  html += '        </select>';
+  html += '      </div>';
+  html += '      <div>';
+  html += '        <label style="font-size:11px;font-weight:700;color:#6b21a8">Cervical Shade (opt)</label>';
+  html += '        <input class="form-input" id="labform-cervical" value="' + esc(editCase ? editCase.cervicalShade || '' : '') + '" placeholder="e.g. A3">';
+  html += '      </div>';
+  html += '      <div>';
+  html += '        <label style="font-size:11px;font-weight:700;color:#6b21a8">Incisal Shade (opt)</label>';
+  html += '        <input class="form-input" id="labform-incisal" value="' + esc(editCase ? editCase.incisalShade || '' : '') + '" placeholder="e.g. B1">';
+  html += '      </div>';
+  html += '    </div>';
+
+  // Characterisation & Shade Photo Upload
+  html += '    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">';
+  html += '      <div>';
+  html += '        <label style="font-size:11px;font-weight:700;color:#6b21a8">Characterisation / Mamelons</label>';
+  html += '        <input class="form-input" id="labform-char" value="' + esc(editCase ? editCase.characterisation || '' : '') + '" placeholder="e.g. Slight incisal translucency, white flecks">';
+  html += '      </div>';
+  html += '      <div>';
+  html += '        <label style="font-size:11px;font-weight:700;color:#6b21a8">📷 Shade Reference Photo</label>';
+  html += '        <input type="file" id="labform-shadephoto-input" accept="image/*" class="form-input" style="padding:4px" onchange="ptLab_handleShadePhotoUpload(event)">';
+  html += '        <input type="hidden" id="labform-shadephoto" value="' + (editCase ? editCase.shadePhoto || '' : '') + '">';
+  html += '        <div id="labform-shadephoto-preview" style="margin-top:4px">' + (editCase && editCase.shadePhoto ? '<span style="font-size:11px;color:#059669">✓ Photo attached (<a href="' + editCase.shadePhoto + '" target="_blank">view</a>)</span>' : '') + '</div>';
+  html += '      </div>';
+  html += '    </div>';
+  html += '  </div>';
+
+  // 5. Lab Information (Directory / Quick selector)
+  html += '  <div class="form-group">';
+  html += '    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+  html += '      <label class="form-label" style="font-weight:700;color:#1e3a5f;margin:0">🏭 Dental Laboratory <span style="color:#dc2626">*</span></label>';
+  html += '      <span style="font-size:11px;color:#64748b">Frequently used labs</span>';
+  html += '    </div>';
+
+  html += '    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px">';
+  html += '      <div>';
+  html += '        <select class="form-input" id="labform-labname" onchange="ptLab_onLabSelect(this.value)">';
+  var frequentLabs = (DATA.frequentLabs && DATA.frequentLabs.length) ? DATA.frequentLabs : DEFAULT_FREQUENT_LABS;
+  frequentLabs.forEach(function(fl) {
+    html += '          <option value="' + fl.name + '" ' + (selectedLab === fl.name ? 'selected' : '') + '>' + fl.name + '</option>';
+  });
+  html += '          <option value="__custom__">+ Add New Laboratory</option>';
+  html += '        </select>';
+  html += '      </div>';
+  html += '      <div>';
+  html += '        <input class="form-input" id="labform-labcontact" placeholder="Contact Person" value="' + (editCase ? editCase.labContact || '' : frequentLabs[0].contact) + '">';
+  html += '      </div>';
+  html += '      <div>';
+  html += '        <input class="form-input" id="labform-labphone" placeholder="Lab Phone / WhatsApp" value="' + (editCase ? editCase.labPhone || editCase.labWhatsApp || '' : frequentLabs[0].phone) + '">';
+  html += '      </div>';
+  html += '    </div>';
+  html += '  </div>';
+
+  // 6. Dates & Status
+  html += '  <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:12px">';
+  html += '    <div class="form-group">';
+  html += '      <label class="form-label" style="font-weight:700;color:#1e3a5f">📅 Sent Date</label>';
+  html += '      <input class="form-input" type="date" id="labform-sentdate" value="' + (editCase ? editCase.sentDate || todayISO() : todayISO()) + '">';
+  html += '    </div>';
+  html += '    <div class="form-group">';
+  html += '      <label class="form-label" style="font-weight:700;color:#1e3a5f">📅 Expected Return <span style="color:#dc2626">*</span></label>';
+  html += '      <input class="form-input" type="date" id="labform-duedate" value="' + (editCase ? editCase.dueDate || '' : '') + '">';
+  html += '    </div>';
+  html += '    <div class="form-group">';
+  html += '      <label class="form-label" style="font-weight:700;color:#1e3a5f">📍 Status</label>';
+  html += '      <select class="form-input" id="labform-status">';
+  LAB_STATUS_FLOW.forEach(function(st) {
+    html += '        <option value="' + st + '" ' + (editCase && editCase.status === st ? 'selected' : (st === 'Sent to Lab' && !editCase ? 'selected' : '')) + '>' + st + '</option>';
+  });
+  html += '      </select>';
+  html += '    </div>';
+  html += '    <div class="form-group">';
+  html += '      <label class="form-label" style="font-weight:700;color:#1e3a5f">💰 Lab Cost (₹)</label>';
+  html += '      <input class="form-input" type="number" id="labform-cost" placeholder="0" value="' + (editCase ? editCase.cost || '' : '') + '">';
+  html += '    </div>';
+  html += '  </div>';
+
+  // 7. Lab Prescription Detailed Instructions (Item 8)
+  html += '  <div class="form-group">';
+  html += '    <label class="form-label" style="font-weight:700;color:#1e3a5f">📝 Lab Prescription & Instructions</label>';
+  html += '    <textarea class="form-input" id="labform-notes" rows="3" placeholder="e.g. 11,21 E-max crowns. Shade A2. Slight translucency. Maintain natural morphology. Contact should be firm. Please send photos before finalisation.">' + (editCase ? esc(editCase.notes || '') : '') + '</textarea>';
+  html += '  </div>';
+
+  html += '</div>';
+
+  // Modal Footer
+  html += '<div style="padding:16px 24px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;background:#f8fafc;border-radius:0 0 16px 16px">';
+  html += '  <button class="btn btn-sm" onclick="document.getElementById(\'pt-lab-case-modal\').remove()" style="font-weight:600">Cancel</button>';
+  html += '  <button class="btn btn-primary" onclick="ptLab_saveCase(\'' + (editCase ? editCase.id : '') + '\')" style="font-weight:700;padding:8px 20px">' + (isEdit ? 'Save Changes' : 'Create & Dispatch Lab Case') + '</button>';
+  html += '</div>';
+
+  html += '</div>';
+  modal.innerHTML = html;
+  document.body.appendChild(modal);
+
+  // Set default due date if new case (default sent date + 4 days)
+  if (!isEdit) {
+    var d = new Date();
+    d.setDate(d.getDate() + 4);
+    var dueInput = document.getElementById('labform-duedate');
+    if (dueInput) dueInput.value = d.toISOString().slice(0, 10);
+  }
+}
+
+/* Modal Helper Functions */
+function ptLab_selectShade(shade) {
+  var el = document.getElementById('labform-shade');
+  if (el) el.value = shade;
+  var chips = document.querySelectorAll('.dash2-shade-chip');
+  chips.forEach(function(c) {
+    c.classList.toggle('active', c.textContent.trim() === shade);
+  });
+}
+
+function ptLab_toggleTooth(toothNum) {
+  var el = document.getElementById('labform-tooth');
+  if (!el) return;
+  var str = el.value.trim();
+  var teeth = str ? str.split(/[s,]+/).filter(Boolean) : [];
+  var tStr = String(toothNum);
+  var idx = teeth.indexOf(tStr);
+  if (idx >= 0) {
+    teeth.splice(idx, 1);
+  } else {
+    teeth.push(tStr);
+  }
+  teeth.sort();
+  el.value = teeth.join(', ');
+
+  // Update button active state
+  var btns = document.querySelectorAll('.dash2-tooth-btn');
+  btns.forEach(function(b) {
+    if (b.textContent.trim() === tStr) {
+      b.classList.toggle('active', idx < 0);
+    }
+  });
+}
+
+function ptLab_onLabSelect(val) {
+  if (val === '__custom__') {
+    var name = prompt('Enter new laboratory name:');
+    if (!name) return;
+    var phone = prompt('Enter laboratory phone / whatsapp:');
+    var contact = prompt('Enter laboratory contact person:');
+    if (!DATA.frequentLabs) DATA.frequentLabs = JSON.parse(JSON.stringify(DEFAULT_FREQUENT_LABS));
+    DATA.frequentLabs.push({ name: name, contact: contact || '', phone: phone || '', whatsapp: phone || '', address: '' });
+    saveData();
+    var sel = document.getElementById('labform-labname');
+    var opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    opt.selected = true;
+    sel.insertBefore(opt, sel.lastElementChild);
+    document.getElementById('labform-labcontact').value = contact || '';
+    document.getElementById('labform-labphone').value = phone || '';
+    return;
+  }
+  var labs = (DATA.frequentLabs && DATA.frequentLabs.length) ? DATA.frequentLabs : DEFAULT_FREQUENT_LABS;
+  var match = labs.find(function(l) { return l.name === val; });
+  if (match) {
+    var cInput = document.getElementById('labform-labcontact');
+    var pInput = document.getElementById('labform-labphone');
+    if (cInput) cInput.value = match.contact || '';
+    if (pInput) pInput.value = match.phone || match.whatsapp || '';
+  }
+}
+
+function ptLab_handleShadePhotoUpload(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var b64 = e.target.result;
+    var hidden = document.getElementById('labform-shadephoto');
+    if (hidden) hidden.value = b64;
+    var prev = document.getElementById('labform-shadephoto-preview');
+    if (prev) prev.innerHTML = '<span style="font-size:11px;color:#059669;font-weight:700">✓ Image ready to save</span>';
+  };
+  reader.readAsDataURL(file);
+}
+
+/* Save Lab Case (Two-way Sync, Patient Record & Main Tab) */
+function ptLab_saveCase(editId) {
+  var patientId = (document.getElementById('labform-ptid') || {}).value || '';
+  var patientName = (document.getElementById('labform-ptname') || {}).value || '';
+  var patientPhone = (document.getElementById('labform-ptphone') || {}).value || '';
+  var workType = (document.getElementById('labform-worktype') || {}).value || 'Crown';
+  var material = (document.getElementById('labform-material') || {}).value || 'E-max';
+  var toothNo = (document.getElementById('labform-tooth') || {}).value || '';
+  var shade = (document.getElementById('labform-shade') || {}).value || '';
+  var shadeSystem = (document.getElementById('labform-shadesystem') || {}).value || 'Vita Classical';
+  var cervicalShade = (document.getElementById('labform-cervical') || {}).value || '';
+  var incisalShade = (document.getElementById('labform-incisal') || {}).value || '';
+  var characterisation = (document.getElementById('labform-char') || {}).value || '';
+  var shadePhoto = (document.getElementById('labform-shadephoto') || {}).value || '';
+  var labName = (document.getElementById('labform-labname') || {}).value || '';
+  var labContact = (document.getElementById('labform-labcontact') || {}).value || '';
+  var labPhone = (document.getElementById('labform-labphone') || {}).value || '';
+  var sentDate = (document.getElementById('labform-sentdate') || {}).value || todayISO();
+  var dueDate = (document.getElementById('labform-duedate') || {}).value || '';
+  var status = (document.getElementById('labform-status') || {}).value || 'Sent to Lab';
+  var cost = Number((document.getElementById('labform-cost') || {}).value || 0);
+  var notes = (document.getElementById('labform-notes') || {}).value || '';
+
+  if (!patientName && !patientId) {
+    alert('Please enter or select a patient.');
+    return;
+  }
+  if (!dueDate) {
+    alert('Please specify an Expected Return Date.');
+    return;
+  }
+
+  if (!DATA.labJobs) DATA.labJobs = [];
+
+  var caseObj = null;
+  if (editId) {
+    caseObj = lab_getCaseById(editId);
+  }
+
+  var isNew = !caseObj;
+  if (isNew) {
+    caseObj = {
+      id: 'lab_' + Date.now(),
+      createdAt: todayISO(),
+      labPayments: [],
+      paidAmount: 0
+    };
+  }
+
+  caseObj.patientId = patientId;
+  caseObj.patientName = patientName;
+  caseObj.patientPhone = patientPhone;
+  caseObj.workType = workType;
+  caseObj.material = material;
+  caseObj.toothNo = toothNo;
+  caseObj.shade = shade;
+  caseObj.shadeSystem = shadeSystem;
+  caseObj.cervicalShade = cervicalShade;
+  caseObj.incisalShade = incisalShade;
+  caseObj.characterisation = characterisation;
+  if (shadePhoto) caseObj.shadePhoto = shadePhoto;
+  caseObj.labName = labName;
+  caseObj.labContact = labContact;
+  caseObj.labPhone = labPhone;
+  caseObj.labWhatsApp = labPhone;
+  caseObj.sentDate = sentDate;
+  caseObj.dueDate = dueDate;
+  caseObj.status = status;
+  caseObj.cost = cost;
+  caseObj.notes = notes;
+
+  if (status === 'Received' && !caseObj.receivedDate) caseObj.receivedDate = todayISO();
+  if (status === 'Delivered' && !caseObj.deliveredDate) caseObj.deliveredDate = todayISO();
+
+  if (isNew) {
+    DATA.labJobs.push(caseObj);
+  } else {
+    var idx = DATA.labJobs.findIndex(function(j) { return j.id === editId; });
+    if (idx >= 0) DATA.labJobs[idx] = caseObj;
+  }
+
+  saveData();
+
+  var modal = document.getElementById('pt-lab-case-modal');
+  if (modal) modal.remove();
+
+  // Re-render views
+  if (typeof ptLab_renderTab === 'function') ptLab_renderTab();
+  if (typeof lab_render === 'function') lab_render();
+  if (typeof ptLab_renderQuickStatusBanner === 'function') ptLab_renderQuickStatusBanner();
+  if (typeof timeline_render === 'function' && activePt) timeline_render(activePt.id);
+  if (typeof dash_renderDashboard === 'function') dash_renderDashboard();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   3. STATUS UPDATES, LAB PAYMENTS & APPOINTMENT SCHEDULING
+   ══════════════════════════════════════════════════════════════════ */
+function ptLab_updateStatusModal(caseId) {
+  var c = lab_getCaseById(caseId);
+  if (!c) return;
+
+  var nextStatus = 'Lab Working';
+  if (c.status === 'Sent to Lab') nextStatus = 'Lab Working';
+  else if (c.status === 'Lab Working') nextStatus = 'Ready at Lab';
+  else if (c.status === 'Ready at Lab') nextStatus = 'Received';
+  else if (c.status === 'Received') nextStatus = 'Trial / Fitting';
+  else if (c.status === 'Trial / Fitting') nextStatus = 'Delivered';
+  else if (c.status === 'Delivered') nextStatus = 'Completed';
+
+  var choice = prompt('Update status for ' + (c.workType || 'case') + ' (Tooth ' + (c.toothNo || '') + '):\n\nOptions: ' + LAB_STATUS_FLOW.join(', '), nextStatus);
+  if (!choice) return;
+
+  var trimmed = choice.trim();
+  if (LAB_STATUS_FLOW.indexOf(trimmed) < 0) {
+    alert('Invalid status. Please use one of: ' + LAB_STATUS_FLOW.join(', '));
+    return;
+  }
+
+  c.status = trimmed;
+  if (trimmed === 'Received' && !c.receivedDate) c.receivedDate = todayISO();
+  if (trimmed === 'Delivered' && !c.deliveredDate) c.deliveredDate = todayISO();
+
+  saveData();
+
+  // If status became Ready or Received, prompt to schedule patient appointment (Item 13)
+  if (trimmed === 'Ready at Lab' || trimmed === 'Received') {
+    var sched = confirm('🧪 Lab Case is now ' + trimmed + '!\n\nWould you like to schedule a patient appointment for fitting/delivery now?');
+    if (sched) {
+      ptLab_linkAppointment(c.id);
+      return;
+    }
+  }
+
+  if (typeof ptLab_renderTab === 'function') ptLab_renderTab();
+  if (typeof lab_render === 'function') lab_render();
+  if (typeof ptLab_renderQuickStatusBanner === 'function') ptLab_renderQuickStatusBanner();
+  if (typeof dash_renderDashboard === 'function') dash_renderDashboard();
+}
+
+/* Lab Payment Modal (Item 20 - Kept strictly separate from Patient Billing) */
+function ptLab_showPaymentModal(caseId) {
+  var c = lab_getCaseById(caseId);
+  if (!c) return;
+
+  var cost = Number(c.cost || 0);
+  var paid = Number(c.paidAmount || (c.paid ? c.cost : 0) || 0);
+  var bal = Math.max(0, cost - paid);
+
+  var amtStr = prompt('Record Lab Payment to ' + (c.labName || 'Laboratory') + ':\nTotal Lab Cost: ₹' + cost.toLocaleString('en-IN') + '\nPaid so far: ₹' + paid.toLocaleString('en-IN') + '\nOutstanding Balance: ₹' + bal.toLocaleString('en-IN') + '\n\nEnter payment amount (₹):', String(bal));
+  if (!amtStr) return;
+  var amt = Number(amtStr);
+  if (isNaN(amt) || amt <= 0) {
+    alert('Please enter a valid amount.');
+    return;
+  }
+
+  var mode = prompt('Payment Mode (Cash / UPI / Bank Transfer / Cheque):', 'UPI') || 'UPI';
+  var note = prompt('Note / Reference / Txn ID (optional):', '') || '';
+
+  if (!c.labPayments) c.labPayments = [];
+  c.labPayments.push({
+    id: 'lpay_' + Date.now(),
+    date: todayISO(),
+    amount: amt,
+    mode: mode,
+    note: note
+  });
+
+  c.paidAmount = (c.paidAmount || 0) + amt;
+  if (c.paidAmount >= cost) {
+    c.paid = true;
+  }
+
+  saveData();
+  alert('✅ Recorded payment of ₹' + amt.toLocaleString('en-IN') + ' to ' + (c.labName || 'lab') + '.');
+
+  if (typeof ptLab_renderTab === 'function') ptLab_renderTab();
+  if (typeof lab_render === 'function') lab_render();
+}
+
+/* Link with Patient Appointment (Item 13) */
+function ptLab_linkAppointment(caseId) {
+  var c = lab_getCaseById(caseId);
+  if (!c) return;
+  var ptId = c.patientId;
+  var noteText = '🧪 Lab Case Ready — ' + (c.workType || 'Prosthesis') + (c.toothNo ? ' Tooth #' + c.toothNo : '') + ' (' + (c.shade || '') + ')';
+
+  if (typeof showApptForm === 'function') {
+    showApptForm(ptId);
+    setTimeout(function() {
+      var notesEl = document.getElementById('appt-notes') || document.getElementById('f-appt-notes');
+      if (notesEl) notesEl.value = noteText;
+      var reasonEl = document.getElementById('appt-reason') || document.getElementById('f-appt-reason');
+      if (reasonEl) reasonEl.value = 'Lab Delivery / Trial';
+    }, 100);
+    goPage('appointments');
+  } else {
+    alert('Please navigate to Appointments to schedule: ' + noteText);
+  }
+}
+
+/* Delivery Finalization Modal (Item 29) */
+function ptLab_showDeliveryModal(caseId) {
+  var c = lab_getCaseById(caseId);
+  if (!c) return;
+
+  var notes = prompt('Clinical notes on Delivery (Fit, Occlusion, Shade Acceptance):', 'Fit & aesthetics satisfactory. Patient satisfied with shade ' + (c.shade || ''));
+  if (notes === null) return;
+
+  c.status = 'Delivered';
+  c.deliveredDate = todayISO();
+  c.deliveryNotes = notes;
+  saveData();
+
+  var markComplete = confirm('Mark case as Completed and move to permanent patient history?');
+  if (markComplete) {
+    c.status = 'Completed';
+    c.completedDate = todayISO();
+    saveData();
+  }
+
+  if (typeof ptLab_renderTab === 'function') ptLab_renderTab();
+  if (typeof lab_render === 'function') lab_render();
+  if (typeof ptLab_renderQuickStatusBanner === 'function') ptLab_renderQuickStatusBanner();
+  if (typeof timeline_render === 'function' && activePt) timeline_render(activePt.id);
+  if (typeof dash_renderDashboard === 'function') dash_renderDashboard();
+}
+
+function ptLab_deleteCase(caseId) {
+  if (!confirm('Are you sure you want to delete this lab case? This cannot be undone.')) return;
+  DATA.labJobs = (DATA.labJobs || []).filter(function(j) { return j.id !== caseId; });
+  saveData();
+
+  if (typeof ptLab_renderTab === 'function') ptLab_renderTab();
+  if (typeof lab_render === 'function') lab_render();
+  if (typeof ptLab_renderQuickStatusBanner === 'function') ptLab_renderQuickStatusBanner();
+  if (typeof dash_renderDashboard === 'function') dash_renderDashboard();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   4. LAB WORK MASTER TAB INTEGRATION (Item 17, 18, 31)
+   ══════════════════════════════════════════════════════════════════ */
+function lab_render() {
+  lab_renderMasterStats();
+  lab_renderMasterFilters();
+  lab_renderMasterList();
+}
+
+function lab_renderMasterStats() {
+  var el = document.getElementById('lab-stats');
+  if (!el) return;
+
+  var jobs = DATA.labJobs || [];
+  var today = todayISO();
+  var total = jobs.length;
+  var overdue = jobs.filter(function(j) { return lab_isCaseOverdue(j); }).length;
+  var dueToday = jobs.filter(function(j) { return j.dueDate === today && !['Delivered','Completed','delivered'].includes(j.status); }).length;
+  var readyAtLab = jobs.filter(function(j) { return j.status === 'Ready at Lab' || j.status === 'Received'; }).length;
+  var active = jobs.filter(function(j) { return !['Delivered','Completed','Cancelled','delivered'].includes(j.status); }).length;
+
+  var totalCost = jobs.reduce(function(s, j) { return s + Number(j.cost || 0); }, 0);
+  var totalPaid = jobs.reduce(function(s, j) { return s + Number(j.paidAmount || (j.paid ? j.cost : 0) || 0); }, 0);
+  var totalBal = Math.max(0, totalCost - totalPaid);
+
+  el.innerHTML = [
+    '<div class="stat-card" style="background:#eff6ff;border:1px solid #dbeafe;cursor:pointer" onclick="lab_setFilterV2(\'all\')"><div style="font-size:22px">🧪</div><div class="stat-val" style="color:#1d4ed8">' + total + '</div><div class="stat-lbl">Total Cases</div></div>',
+    '<div class="stat-card" style="background:#fef2f2;border:1px solid #fee2e2;cursor:pointer" onclick="lab_setFilterV2(\'overdue\')"><div style="font-size:22px">🔴</div><div class="stat-val" style="color:#dc2626">' + overdue + '</div><div class="stat-lbl">Overdue Cases</div></div>',
+    '<div class="stat-card" style="background:#fffbeb;border:1px solid #fef3c7;cursor:pointer" onclick="lab_setFilterV2(\'due_today\')"><div style="font-size:22px">🟠</div><div class="stat-val" style="color:#d97706">' + dueToday + '</div><div class="stat-lbl">Due Today</div></div>',
+    '<div class="stat-card" style="background:#ecfdf5;border:1px solid #d1fae5;cursor:pointer" onclick="lab_setFilterV2(\'ready\')"><div style="font-size:22px">🟢</div><div class="stat-val" style="color:#059669">' + readyAtLab + '</div><div class="stat-lbl">Ready / Received</div></div>',
+    '<div class="stat-card" style="background:#f5f3ff;border:1px solid #ede9fe"><div style="font-size:22px">💰</div><div class="stat-val" style="color:#7c3aed">₹' + totalBal.toLocaleString('en-IN') + '</div><div class="stat-lbl">Lab Payable Bal</div></div>'
+  ].join('');
+}
+
+function lab_renderMasterFilters() {
+  var filterBar = document.getElementById('lab-filters');
+  if (!filterBar) return;
+
+  var labs = [];
+  (DATA.labJobs || []).forEach(function(j) {
+    if (j.labName && labs.indexOf(j.labName) < 0) labs.push(j.labName);
+  });
+
+  var html = '';
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px">';
+  html += '  <input class="form-input" placeholder="🔍 Search patient, tooth, shade, lab..." style="max-width:280px" oninput="lab_onSearch(this.value)" value="' + esc(lab_filterState.search || '') + '">';
+
+  html += '  <div style="display:flex;gap:4px;flex-wrap:wrap">';
+  var filters = [
+    { key: 'all', label: 'All' },
+    { key: 'active', label: 'Active' },
+    { key: 'overdue', label: '🔴 Overdue' },
+    { key: 'due_today', label: 'Due Today' },
+    { key: 'ready', label: '🟢 Ready' },
+    { key: 'delivered', label: 'Delivered' },
+    { key: 'completed', label: 'Completed' }
+  ];
+
+  filters.forEach(function(f) {
+    var active = (lab_filterState.status === f.key);
+    html += '<button class="btn btn-sm" style="background:' + (active ? '#1e3a5f' : '#fff') + ';color:' + (active ? '#fff' : '#475569') + ';border:1px solid #cbd5e1;font-weight:700" onclick="lab_setFilterV2(\'' + f.key + '\')">' + f.label + '</button>';
+  });
+  html += '  </div>';
+
+  html += '  <div style="margin-left:auto;display:flex;gap:8px">';
+  html += '    <button class="btn btn-primary" onclick="ptLab_showNewCaseModal(null)">+ New Lab Case</button>';
+  html += '  </div>';
+  html += '</div>';
+
+  filterBar.innerHTML = html;
+}
+
+function lab_renderMasterList() {
+  var listEl = document.getElementById('lab-list');
+  if (!listEl) return;
+
+  var jobs = (DATA.labJobs || []).slice();
+  var today = todayISO();
+
+  // Filter logic
+  var fStatus = lab_filterState.status;
+  var q = (lab_filterState.search || '').toLowerCase();
+
+  var filtered = jobs.filter(function(j) {
+    if (fStatus === 'overdue' && !lab_isCaseOverdue(j)) return false;
+    if (fStatus === 'due_today' && j.dueDate !== today) return false;
+    if (fStatus === 'ready' && j.status !== 'Ready at Lab' && j.status !== 'Received' && j.status !== 'received') return false;
+    if (fStatus === 'active' && ['Delivered', 'Completed', 'Cancelled', 'delivered'].indexOf(j.status) >= 0) return false;
+    if (fStatus === 'delivered' && j.status !== 'Delivered' && j.status !== 'delivered') return false;
+    if (fStatus === 'completed' && j.status !== 'Completed') return false;
+
+    if (q) {
+      var match = (j.patientName && j.patientName.toLowerCase().includes(q)) ||
+                  (j.workType && j.workType.toLowerCase().includes(q)) ||
+                  (j.toothNo && String(j.toothNo).includes(q)) ||
+                  (j.shade && j.shade.toLowerCase().includes(q)) ||
+                  (j.material && j.material.toLowerCase().includes(q)) ||
+                  (j.labName && j.labName.toLowerCase().includes(q));
+      if (!match) return false;
+    }
+    return true;
+  });
+
+  filtered.sort(function(a, b) {
+    // Overdue first, then by dueDate asc
+    var aOverdue = lab_isCaseOverdue(a);
+    var bOverdue = lab_isCaseOverdue(b);
+    if (aOverdue && !bOverdue) return -1;
+    if (!aOverdue && bOverdue) return 1;
+    return (a.dueDate || '').localeCompare(b.dueDate || '');
+  });
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = '<div class="empty"><div style="font-size:32px">🧪</div><div class="empty-title">No matching lab cases found</div><div class="empty-sub">Adjust your filters or create a new lab prescription</div></div>';
+    return;
+  }
+
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(350px, 1fr));gap:16px">';
+  for (var i = 0; i < filtered.length; i++) {
+    var c = filtered[i];
+    var meta = lab_getStatusMeta(c.status, c.dueDate);
+    var isOverdue = lab_isCaseOverdue(c);
+    var daysOverdue = isOverdue ? lab_calcDaysOverdue(c.dueDate) : 0;
+    var waLabURL = lab_getWhatsAppLabURL(c);
+
+    html += '<div class="card" style="border:1.5px solid ' + (isOverdue ? '#fca5a5' : '#e2e8f0') + ';border-radius:14px;padding:16px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.02)">';
+
+    // Header with Patient Link (Item 16, 17)
+    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">';
+    html += '  <div>';
+    html += '    <div style="font-size:15px;font-weight:800;color:#1e3a5f;cursor:pointer" onclick="' + (c.patientId ? 'openPatient(\'' + c.patientId + '\');setTimeout(function(){switchGroup(\'lab\',\'lab\')},100)' : '') + '" title="Open Patient File">';
+    html += '      👤 ' + esc(c.patientName || 'Unknown Patient') + (c.patientId ? ' <span style="font-size:11px;color:#3b82f6;font-family:monospace;font-weight:600">[' + c.patientId + ']</span>' : '');
+    html += '    </div>';
+    html += '    <div style="font-size:13.5px;font-weight:700;color:#0f172a;margin-top:2px">' + esc(c.workType || 'Prosthesis') + (c.toothNo ? ' &bull; Tooth ' + esc(c.toothNo) : '') + '</div>';
+    html += '  </div>';
+    html += '  <span class="badge" style="background:' + meta.bg + ';color:' + meta.color + ';border:1px solid ' + meta.border + ';font-size:11px;font-weight:700">' + meta.label + '</span>';
+    html += '</div>';
+
+    // Details Strip
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#f8fafc;padding:10px 12px;border-radius:8px;font-size:12px;margin-bottom:12px;border:1px solid #f1f5f9">';
+    html += '  <div><span style="color:#64748b">🏭 Lab:</span> <strong>' + esc(c.labName || 'Standard') + '</strong></div>';
+    html += '  <div><span style="color:#64748b">🎨 Shade:</span> <strong style="color:#7c3aed">' + esc(c.shade || 'A2') + '</strong></div>';
+    html += '  <div><span style="color:#64748b">🦷 Material:</span> <strong>' + esc(c.material || 'E-max') + '</strong></div>';
+    html += '  <div><span style="color:#64748b">📅 Expected:</span> <strong style="color:' + (isOverdue ? '#dc2626' : '#1e293b') + '">' + (c.dueDate ? fmtDate(c.dueDate) : '—') + '</strong></div>';
+    html += '</div>';
+
+    // Action bar
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding-top:8px;border-top:1px solid #f1f5f9">';
+    html += '  <button class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;font-size:11.5px;padding:5px 10px" onclick="ptLab_updateStatusModal(\'' + c.id + '\')">Update Status</button>';
+    html += '  <button class="btn btn-sm" style="background:#f1f5f9;color:#334155;font-size:11.5px;padding:5px 10px" onclick="ptLab_showNewCaseModal(\'' + (c.patientId || '') + '\', \'' + c.id + '\')">Edit</button>';
+    if (waLabURL) {
+      html += '  <a href="' + waLabURL + '" target="_blank" class="btn btn-sm" style="background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;font-size:11.5px;padding:5px 10px;text-decoration:none">💬 WhatsApp Lab</a>';
+    }
+    html += '  <button class="btn btn-sm" style="background:#fffbeb;color:#b45309;font-size:11.5px;padding:5px 10px" onclick="ptLab_showPaymentModal(\'' + c.id + '\')">💰 Lab Payment</button>';
+
+    if (c.status === 'Ready at Lab' || c.status === 'Received' || c.status === 'received') {
+      html += '  <button class="btn btn-sm" style="background:#f0fdfa;color:#0d9488;border:1px solid #99f6e4;font-size:11.5px;padding:5px 10px" onclick="ptLab_linkAppointment(\'' + c.id + '\')">📅 Schedule Visit</button>';
+    }
+
+    html += '  <button class="btn btn-red btn-sm" style="margin-left:auto;padding:4px 8px;font-size:11px" onclick="ptLab_deleteCase(\'' + c.id + '\')" title="Delete case">🗑️</button>';
+    html += '</div>';
+
+    html += '</div>';
+  }
+  html += '</div>';
+  listEl.innerHTML = html;
+}
+
+function lab_setFilterV2(statusKey) {
+  lab_filterState.status = statusKey;
+  lab_render();
+}
+
+function lab_onSearch(val) {
+  lab_filterState.search = (val || '').trim();
+  lab_render();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   5. PATIENT LIST LAB BADGE INDICATOR (Item 15)
+   ══════════════════════════════════════════════════════════════════ */
+function ptLab_getPatientBadge(p) {
+  if (!p || !p.id) return '';
+  var jobs = (DATA.labJobs || []).filter(function(j) {
+    return j.patientId === p.id || (j.patientName && j.patientName.toLowerCase() === p.name.toLowerCase());
+  });
+
+  var active = jobs.filter(function(j) {
+    return !['Delivered', 'Completed', 'Cancelled', 'delivered'].includes(j.status);
+  });
+  if (active.length === 0) return '';
+
+  var overdue = active.some(function(j) { return lab_isCaseOverdue(j); });
+  if (overdue) {
+    return '<span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;font-size:9.5px;margin-left:4px">🔴 Lab Overdue</span>';
+  }
+
+  var ready = active.some(function(j) { return j.status === 'Ready at Lab' || j.status === 'Received'; });
+  if (ready) {
+    return '<span class="badge" style="background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;font-size:9.5px;margin-left:4px">🟢 Lab Ready</span>';
+  }
+
+  return '<span class="badge" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:9.5px;margin-left:4px">🧪 Lab Active</span>';
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   6. STYLES FOR TOOTH SELECTOR & SHADE PALETTE
+   ══════════════════════════════════════════════════════════════════ */
+function ptLab_injectStyles() {
+  if (document.getElementById('lab2-styles')) return;
+  var st = document.createElement('style');
+  st.id = 'lab2-styles';
+  st.textContent =
+    '.dash2-tooth-btn { min-width: 28px; height: 28px; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; color: #1e293b; font-size: 11px; font-weight: 700; cursor: pointer; transition: all .15s ease; }' +
+    '.dash2-tooth-btn:hover { background: #eff6ff; border-color: #3b82f6; color: #1d4ed8; }' +
+    '.dash2-tooth-btn.active { background: #1d4ed8; border-color: #1e40af; color: #fff; box-shadow: 0 1px 3px rgba(29,78,216,0.3); }' +
+    '.dash2-shade-chip { padding: 4px 9px; border-radius: 6px; border: 1px solid #e9d5ff; background: #fff; color: #6b21a8; font-size: 11px; font-weight: 700; cursor: pointer; transition: all .15s ease; }' +
+    '.dash2-shade-chip:hover { background: #f5d0fe; border-color: #c084fc; }' +
+    '.dash2-shade-chip.active { background: #7c3aed; border-color: #6d28d9; color: #fff; box-shadow: 0 1px 3px rgba(124,58,237,0.3); }';
+  document.head.appendChild(st);
+}
+
+// Global hookup
+if (typeof window !== 'undefined') {
+  ptLab_injectStyles();
 }
