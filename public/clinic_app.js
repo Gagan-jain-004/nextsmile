@@ -1,4 +1,3 @@
-
 function genId() { return 'PT' + Date.now().toString().slice(-6) + Math.floor(Math.random() * 100); }
 function genApptId() { return 'AP' + Date.now().toString().slice(-6) + Math.floor(Math.random() * 100); }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -1614,6 +1613,13 @@ function renderDashboard() {
       dd._clickSet=true;
     }
   },300);
+  try {
+    if (typeof dash_renderDashboard === 'function') {
+      dash_renderDashboard();
+    }
+  } catch(err) {
+    console.error('dash_renderDashboard hook error:', err);
+  }
 }
 
 /* ══════════════════════════════════════════════════════
@@ -7539,8 +7545,6 @@ function renderQuickActionBar(){
     <button class="qa-btn" onclick="goPage('add-patient')">➕ New Patient</button>
     <button class="qa-btn" onclick="showApptForm();goPage('appointments')">📅 Appointment</button>
     <button class="qa-btn" onclick="goPage('expenses');setTimeout(()=>{document.getElementById('exp-subcat')&&document.getElementById('exp-subcat').focus()},200)">💸 Log Expense</button>
-    <button class="qa-btn" onclick="goPage('leads')">🎯 Add Lead</button>
-    <button class="qa-btn" onclick="goPage('waitingroom');wr_renderPending()">🪑 Waiting Room</button>
     <button class="qa-btn" onclick="morningHuddle_open()">☀️ Morning Huddle</button>
     <button class="qa-btn" onclick="generateDailyReport()">📊 Daily Report</button>
     <button class="qa-btn" onclick="goPage('pending-tx')">📋 Pending Tx</button>
@@ -28326,3 +28330,1497 @@ function copyPublicRegisterLink() {
   }
 }
 window.copyPublicRegisterLink = copyPublicRegisterLink;
+
+
+/* ══════════════════════════════════════════════════════════════════
+   DASHBOARD 2.0 — CLINICAL COMMAND CENTER
+   App: HomeOfSmiles v72
+   ══════════════════════════════════════════════════════════════════ */
+
+var dash_notifExpanded = false;
+var dash_quickNotesState = null;
+
+/* ── Fallback Helpers (Guarded against missing global functions) ── */
+function dash_esc(str) {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>"']/g, function(m) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+  });
+}
+
+function dash_fmtMoney(num) {
+  var val = Math.round(Number(num || 0));
+  if (isNaN(val)) val = 0;
+  return '₹' + val.toLocaleString('en-IN');
+}
+
+function dash_todayISO() {
+  if (typeof todayISO === 'function') return todayISO();
+  var d = new Date();
+  var month = '' + (d.getMonth() + 1);
+  var day = '' + d.getDate();
+  var year = d.getFullYear();
+  if (month.length < 2) month = '0' + month;
+  if (day.length < 2) day = '0' + day;
+  return [year, month, day].join('-');
+}
+
+function dash_fmtDate(dateStr) {
+  if (!dateStr) return '';
+  if (typeof fmtDate === 'function') return fmtDate(dateStr);
+  try {
+    var parts = String(dateStr).split('T')[0].split('-');
+    if (parts.length === 3) return parts[2] + '/' + parts[1] + '/' + parts[0];
+  } catch(e) {}
+  return String(dateStr);
+}
+
+function dash_alnStatus(c) {
+  if (!c) return 'inactive';
+  if (typeof aln_status === 'function') return aln_status(c);
+  return c.treatmentStatus || c.status || 'active';
+}
+
+function dash_alnNextDue(c) {
+  if (!c) return '';
+  if (typeof aln_nextDue === 'function') return aln_nextDue(c);
+  return c.nextChangeDate || c.nextDue || c.nextReviewDate || '';
+}
+
+function dash_scrollToNotifications() {
+  var el = document.getElementById('dash-notifications');
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.style.transition = 'box-shadow 0.3s ease';
+    el.style.boxShadow = '0 0 0 3px #3b82f6';
+    setTimeout(function() { el.style.boxShadow = 'none'; }, 1500);
+  }
+}
+
+function dash_collectPayment(patientId, billId) {
+  if (billId && typeof bil_addPaymentModal === 'function') {
+    bil_addPaymentModal(billId);
+    return;
+  }
+  if (billId && typeof bil_addPayment === 'function') {
+    bil_addPayment(billId);
+    return;
+  }
+  if (patientId && typeof openPatient === 'function') {
+    openPatient(patientId);
+  }
+}
+
+/* ── 1. MORNING ACTION CENTER (4 stat cards at top) ── */
+function dash_renderActionCards() {
+  var el = document.getElementById('dash-action-cards');
+  if (!el) return;
+
+  if (!window.DATA || !DATA.patients) {
+    el.innerHTML = '<div style="padding:12px;color:#64748b;font-size:13px">Loading morning stats...</div>';
+    return;
+  }
+
+  var today = dash_todayISO();
+  var appts = DATA.appointments || [];
+  var pts = DATA.patients || [];
+  var aligners = DATA.alignerCases || [];
+  var fmr = DATA.fmrCases || [];
+
+  // 1. Today\'s Appointments
+  var todayApptsCount = 0;
+  for (var i = 0; i < appts.length; i++) {
+    if (appts[i] && appts[i].date === today && appts[i].status !== 'cancelled') {
+      todayApptsCount++;
+    }
+  }
+
+  // 2. Patients Seen Today
+  var seenCount = 0;
+  var seenPtSet = {};
+  for (var j = 0; j < appts.length; j++) {
+    var ap = appts[j];
+    if (ap && ap.date === today && (ap.status === 'completed' || ap.status === 'done')) {
+      if (ap.patientId) seenPtSet[ap.patientId] = true;
+      seenCount++;
+    }
+  }
+  for (var k = 0; k < pts.length; k++) {
+    var p = pts[k];
+    if (p && p.records && p.records.length) {
+      for (var r = 0; r < p.records.length; r++) {
+        if (p.records[r] && (p.records[r].date || '').slice(0, 10) === today) {
+          if (!seenPtSet[p.id]) {
+            seenPtSet[p.id] = true;
+            seenCount++;
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Collections Due Today
+  var collDueToday = 0;
+  for (var pi = 0; pi < pts.length; pi++) {
+    var pt = pts[pi];
+    if (pt && pt.billing && pt.billing.length) {
+      for (var bi = 0; bi < pt.billing.length; bi++) {
+        var b = pt.billing[bi];
+        if (b && !b.paid && (b.date || '').slice(0, 10) === today) {
+          var tot = Number(b.totalAmount || b.amount || 0);
+          var pd = Number(b.paidAmount || 0);
+          var due = tot - pd;
+          if (due > 0) collDueToday += due;
+        }
+      }
+    }
+  }
+  collDueToday = Math.round(collDueToday);
+  if (isNaN(collDueToday)) collDueToday = 0;
+
+  // 4. Urgent Actions
+  var missedApptsCount = 0;
+  for (var ai = 0; ai < appts.length; ai++) {
+    var a = appts[ai];
+    if (a && a.date && a.date < today && a.status !== 'completed' && a.status !== 'done' && a.status !== 'cancelled') {
+      missedApptsCount++;
+    }
+  }
+
+  var alignerOverdueCount = 0;
+  for (var aci = 0; aci < aligners.length; aci++) {
+    var ac = aligners[aci];
+    var st = dash_alnStatus(ac);
+    var nd = dash_alnNextDue(ac);
+    if ((st === 'active' || st === 'ongoing') && nd && nd < today) {
+      alignerOverdueCount++;
+    }
+  }
+
+  var fmrPendingCrownCount = 0;
+  for (var fi = 0; fi < fmr.length; fi++) {
+    var fc = fmr[fi];
+    if (fc && fc.teeth && typeof fc.teeth === 'object') {
+      var tKeys = Object.keys(fc.teeth);
+      for (var ti = 0; ti < tKeys.length; ti++) {
+        var tooth = fc.teeth[tKeys[ti]];
+        if (tooth && tooth.status === 'inlab' && tooth.crownReturnDate && tooth.crownReturnDate <= today) {
+          fmrPendingCrownCount++;
+          break;
+        }
+      }
+    }
+  }
+
+  var urgentCount = missedApptsCount + alignerOverdueCount + fmrPendingCrownCount;
+
+  el.innerHTML =
+    '<div class="dash2-cards-grid">' +
+      '<div class="dash2-stat-card" data-action="go-appts">' +
+        '<div class="dash2-card-top">' +
+          '<span class="dash2-card-icon" style="background:#eff6ff;color:#2563eb">📅</span>' +
+          '<span class="dash2-card-tag" style="background:#dbeafe;color:#1e40af">Today</span>' +
+        '</div>' +
+        '<div class="dash2-card-num">' + (todayApptsCount || 0) + '</div>' +
+        '<div class="dash2-card-label">Today\'s Appointments</div>' +
+      '</div>' +
+
+      '<div class="dash2-stat-card" data-action="go-appts">' +
+        '<div class="dash2-card-top">' +
+          '<span class="dash2-card-icon" style="background:#ecfdf5;color:#059669">🩺</span>' +
+          '<span class="dash2-card-tag" style="background:#d1fae5;color:#065f46">Completed</span>' +
+        '</div>' +
+        '<div class="dash2-card-num">' + (seenCount || 0) + '</div>' +
+        '<div class="dash2-card-label">Patients Seen Today</div>' +
+      '</div>' +
+
+      '<div class="dash2-stat-card" data-action="go-billing">' +
+        '<div class="dash2-card-top">' +
+          '<span class="dash2-card-icon" style="background:#fef3c7;color:#d97706">💰</span>' +
+          '<span class="dash2-card-tag" style="background:#fde68a;color:#92400e">Due Today</span>' +
+        '</div>' +
+        '<div class="dash2-card-num">' + dash_fmtMoney(collDueToday) + '</div>' +
+        '<div class="dash2-card-label">Collections Due Today</div>' +
+      '</div>' +
+
+      '<div class="dash2-stat-card" data-action="scroll-urgent">' +
+        '<div class="dash2-card-top">' +
+          '<span class="dash2-card-icon" style="background:#fee2e2;color:#dc2626">⚡</span>' +
+          '<span class="dash2-card-tag" style="background:' + (urgentCount > 0 ? '#fecaca;color:#991b1b' : '#e2e8f0;color:#475569') + '">' + (urgentCount > 0 ? 'Requires Action' : 'All Clear') + '</span>' +
+        '</div>' +
+        '<div class="dash2-card-num" style="color:' + (urgentCount > 0 ? '#dc2626' : '#1e3a5f') + '">' + (urgentCount || 0) + '</div>' +
+        '<div class="dash2-card-label">Urgent Actions</div>' +
+      '</div>' +
+    '</div>';
+
+  var cards = el.querySelectorAll('.dash2-stat-card');
+  for (var cIdx = 0; cIdx < cards.length; cIdx++) {
+    (function(card) {
+      var act = card.getAttribute('data-action');
+      card.addEventListener('click', function() {
+        if (act === 'go-appts') goPage('appointments');
+        else if (act === 'go-billing') goPage('billing');
+        else if (act === 'scroll-urgent') dash_scrollToNotifications();
+      });
+    })(cards[cIdx]);
+  }
+}
+
+/* ── 2. QUICK ACTIONS BAR (Exactly 6 Buttons) ── */
+function dash_renderQuickActions() {
+  var el = document.getElementById('dash-quick-actions');
+  if (!el) return;
+
+  el.innerHTML =
+    '<div class="dash2-qa-bar">' +
+      '<button class="dash2-qa-btn" data-qa="new-patient"><span class="dash2-qa-icon">➕</span><span class="dash2-qa-text">New Patient</span></button>' +
+      '<button class="dash2-qa-btn" data-qa="appointments"><span class="dash2-qa-icon">📅</span><span class="dash2-qa-text">Appointment</span></button>' +
+      '<button class="dash2-qa-btn" data-qa="billing"><span class="dash2-qa-icon">💰</span><span class="dash2-qa-text">Billing</span></button>' +
+      '<button class="dash2-qa-btn" data-qa="expenses"><span class="dash2-qa-icon">💸</span><span class="dash2-qa-text">Log Expense</span></button>' +
+      '<button class="dash2-qa-btn" data-qa="waitingroom"><span class="dash2-qa-icon">🪑</span><span class="dash2-qa-text">Waiting Room</span></button>' +
+      '<button class="dash2-qa-btn dash2-qa-btn-highlight" data-qa="huddle"><span class="dash2-qa-icon">☀️</span><span class="dash2-qa-text">Morning Huddle</span></button>' +
+    '</div>';
+
+  var btns = el.querySelectorAll('.dash2-qa-btn');
+  for (var bIdx = 0; bIdx < btns.length; bIdx++) {
+    (function(btn) {
+      var qa = btn.getAttribute('data-qa');
+      btn.addEventListener('click', function() {
+        if (qa === 'new-patient') {
+          var pg = document.getElementById('page-add-patient') ? 'add-patient' : 'new-patient';
+          goPage(pg);
+        } else if (qa === 'appointments') {
+          goPage('appointments');
+        } else if (qa === 'billing') {
+          goPage('billing');
+        } else if (qa === 'expenses') {
+          goPage('expenses');
+        } else if (qa === 'waitingroom') {
+          goPage('appointments');
+        } else if (qa === 'huddle') {
+          dash_renderHuddle();
+        }
+      });
+    })(btns[bIdx]);
+  }
+}
+
+/* ── 3. SMART NOTIFICATION CENTER ── */
+function dash_renderNotifications() {
+  var el = document.getElementById('dash-notifications');
+  if (!el) return;
+
+  if (!window.DATA || !DATA.patients) {
+    el.innerHTML = '<div style="padding:16px;color:#64748b;font-size:13px">Loading smart notifications...</div>';
+    return;
+  }
+
+  var today = dash_todayISO();
+  var appts = DATA.appointments || [];
+  var pts = DATA.patients || [];
+  var aligners = DATA.alignerCases || [];
+  var fmr = DATA.fmrCases || [];
+
+  var cards = [];
+
+  // 🔴 1. Missed appointments
+  var missedList = [];
+  for (var ai = 0; ai < appts.length; ai++) {
+    var a = appts[ai];
+    if (a && a.date && a.date < today && a.status !== 'completed' && a.status !== 'done' && a.status !== 'cancelled') {
+      missedList.push(a);
+    }
+  }
+  if (missedList.length > 0) {
+    cards.push({
+      level: 'critical',
+      badge: '🔴 Missed Appointments',
+      badgeBg: '#fee2e2',
+      badgeColor: '#991b1b',
+      title: missedList.length + ' missed appointment' + (missedList.length > 1 ? 's' : '') + ' before today',
+      desc: 'Patients with uncompleted appointments prior to ' + dash_fmtDate(today) + '.',
+      btnText: 'View in Appointments',
+      btnAction: function() { goPage('appointments'); }
+    });
+  }
+
+  // 🔴 2. Same-day reviews
+  var sameDayReviews = [];
+  for (var pi = 0; pi < pts.length; pi++) {
+    var p = pts[pi];
+    if (p && p.records && p.records.length) {
+      for (var ri = 0; ri < p.records.length; ri++) {
+        var rec = p.records[ri];
+        if (rec && (rec.nextReviewDate || '').slice(0, 10) === today) {
+          sameDayReviews.push({ id: p.id, name: p.name || 'Patient', proc: rec.treatment || rec.procedure || 'Clinical Review' });
+        }
+      }
+    }
+  }
+  if (sameDayReviews.length > 0) {
+    var revNames = sameDayReviews.map(function(r) { return r.name; }).slice(0, 5).join(', ');
+    if (sameDayReviews.length > 5) revNames += ' (+' + (sameDayReviews.length - 5) + ' more)';
+    cards.push({
+      level: 'critical',
+      badge: '🔴 Same-Day Reviews Due',
+      badgeBg: '#fee2e2',
+      badgeColor: '#991b1b',
+      title: sameDayReviews.length + ' Clinical Review' + (sameDayReviews.length > 1 ? 's' : '') + ' Scheduled Today',
+      desc: 'Patients: ' + dash_esc(revNames),
+      btnText: 'Open First Patient',
+      btnAction: function() { if (sameDayReviews[0]) openPatient(sameDayReviews[0].id); }
+    });
+  }
+
+  // 🔴 3. Aligner overdue
+  var alignerOverdues = [];
+  for (var aci = 0; aci < aligners.length; aci++) {
+    var ac = aligners[aci];
+    var st = dash_alnStatus(ac);
+    var nd = dash_alnNextDue(ac);
+    if ((st === 'active' || st === 'ongoing') && nd && nd < today) {
+      alignerOverdues.push({
+        id: ac.patientId || ac.id,
+        name: ac.patientName || 'Aligner Patient',
+        dueDate: nd
+      });
+    }
+  }
+  if (alignerOverdues.length > 0) {
+    var alnNames = alignerOverdues.map(function(o) { return o.name + ' (' + dash_fmtDate(o.dueDate) + ')'; }).slice(0, 4).join(', ');
+    if (alignerOverdues.length > 4) alnNames += ' (+' + (alignerOverdues.length - 4) + ' more)';
+    cards.push({
+      level: 'critical',
+      badge: '🔴 Aligner Set Change Overdue',
+      badgeBg: '#fee2e2',
+      badgeColor: '#991b1b',
+      title: alignerOverdues.length + ' Aligner Case' + (alignerOverdues.length > 1 ? 's' : '') + ' Overdue for Tray Switch',
+      desc: 'Patients: ' + dash_esc(alnNames),
+      btnText: 'View Aligner Cases',
+      btnAction: function() { goPage('aligner'); }
+    });
+  }
+
+  // 🟠 4. High dues (>₹5000) - Top 3
+  var highDuesList = [];
+  for (var hpi = 0; hpi < pts.length; hpi++) {
+    var hp = pts[hpi];
+    if (hp && hp.billing && hp.billing.length) {
+      var unp = hp.billing.filter(function(b) {
+        return !b.paid && (Number(b.totalAmount || b.amount || 0) > Number(b.paidAmount || 0));
+      });
+      var totDue = unp.reduce(function(sum, b) {
+        return sum + (Number(b.totalAmount || b.amount || 0) - Number(b.paidAmount || 0));
+      }, 0);
+      if (totDue >= 5000) {
+        highDuesList.push({
+          id: hp.id,
+          name: hp.name || 'Patient',
+          phone: hp.phone || '',
+          due: Math.round(totDue)
+        });
+      }
+    }
+  }
+  highDuesList.sort(function(a, b) { return b.due - a.due; });
+  var top3HighDues = highDuesList.slice(0, 3);
+  for (var thi = 0; thi < top3HighDues.length; thi++) {
+    (function(hd) {
+      var cleanPhone = (hd.phone || '').replace(/[^0-9]/g, '');
+      if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+      cards.push({
+        level: 'important',
+        badge: '🟠 High Outstanding Due',
+        badgeBg: '#fffbeb',
+        badgeColor: '#b45309',
+        title: dash_esc(hd.name) + ' — Outstanding ' + dash_fmtMoney(hd.due),
+        desc: 'Phone: ' + (hd.phone || 'No phone recorded') + ' | Tap below for quick contact.',
+        customButtons:
+          (hd.phone ? '<a href="tel:' + hd.phone + '" class="dash2-notif-btn" style="background:#eff6ff;color:#1d4ed8;text-decoration:none">📞 Call</a>' : '') +
+          (cleanPhone ? '<a href="https://wa.me/' + cleanPhone + '?text=' + encodeURIComponent('Dear ' + hd.name + ', gentle reminder regarding pending clinic dues of ' + dash_fmtMoney(hd.due) + ' at ' + (typeof CLINIC !== 'undefined' ? CLINIC : 'HomeOfSmiles') + '. Thank you!') + '" target="_blank" class="dash2-notif-btn" style="background:#ecfdf5;color:#059669;text-decoration:none">💬 WhatsApp</a>' : '') +
+          '<button class="dash2-notif-btn" data-act="open-pt" style="background:#f8fafc;color:#334155">👤 File</button>',
+        btnAction: function() { openPatient(hd.id); }
+      });
+    })(top3HighDues[thi]);
+  }
+
+  // 🟠 5. Lab cases ready
+  var readyFmr = [];
+  for (var fmi = 0; fmi < fmr.length; fmi++) {
+    var fcase = fmr[fmi];
+    if (fcase && fcase.teeth && typeof fcase.teeth === 'object') {
+      var tk = Object.keys(fcase.teeth);
+      for (var tki = 0; tki < tk.length; tki++) {
+        var th = fcase.teeth[tk[tki]];
+        if (th && th.status === 'inlab' && th.crownReturnDate && th.crownReturnDate <= today) {
+          readyFmr.push({
+            id: fcase.patientId,
+            name: fcase.patientName || 'FMR Patient',
+            tooth: tk[tki],
+            returnDate: th.crownReturnDate
+          });
+          break;
+        }
+      }
+    }
+  }
+  if (readyFmr.length > 0) {
+    var fmrNames = readyFmr.map(function(f) { return f.name + ' (Tooth #' + f.tooth + ')'; }).slice(0, 4).join(', ');
+    cards.push({
+      level: 'important',
+      badge: '🟠 Lab Cases Ready',
+      badgeBg: '#fffbeb',
+      badgeColor: '#b45309',
+      title: readyFmr.length + ' Lab / Crown Case' + (readyFmr.length > 1 ? 's' : '') + ' Ready for Delivery',
+      desc: 'Patients: ' + dash_esc(fmrNames),
+      btnText: 'View Lab Work',
+      btnAction: function() { goPage('lab'); }
+    });
+  }
+
+  // 🟠 6. Retainer reviews (Ortho patients)
+  var orthoReviewsDue = [];
+  for (var opi = 0; opi < pts.length; opi++) {
+    var op = pts[opi];
+    if (op && (op.type === 'ortho' || (op.treatmentStatus || '').toLowerCase().includes('ortho'))) {
+      if (op.nextAppt && op.nextAppt <= today) {
+        orthoReviewsDue.push(op);
+      }
+    }
+  }
+  if (orthoReviewsDue.length > 0) {
+    var opNames = orthoReviewsDue.map(function(o) { return o.name; }).slice(0, 4).join(', ');
+    cards.push({
+      level: 'important',
+      badge: '🟠 Retainer Reviews Due',
+      badgeBg: '#fffbeb',
+      badgeColor: '#b45309',
+      title: orthoReviewsDue.length + ' Orthodontic Retainer/Adjustment Due',
+      desc: 'Patients: ' + dash_esc(opNames),
+      btnText: 'View Ortho List',
+      btnAction: function() { goPage('ortho'); }
+    });
+  }
+
+  // 🟢 7. Today\'s Birthdays (ONE SINGLE GROUPED CARD ONLY)
+  var todayBdays = [];
+  var todayMonthDay = today.slice(5); // 'MM-DD'
+  var curYear = new Date().getFullYear();
+  for (var bdi = 0; bdi < pts.length; bdi++) {
+    var bp = pts[bdi];
+    if (!bp || !bp.dob) continue;
+    var dobStr = String(bp.dob).trim();
+    var bdayMD = '';
+    var bdayYear = 0;
+    if (dobStr.indexOf('/') !== -1) {
+      var dParts = dobStr.split('/');
+      if (dParts.length === 3) {
+        var dd = dParts[0].length === 1 ? '0' + dParts[0] : dParts[0];
+        var mm = dParts[1].length === 1 ? '0' + dParts[1] : dParts[1];
+        bdayMD = mm + '-' + dd;
+        bdayYear = parseInt(dParts[2], 10);
+      }
+    } else if (dobStr.indexOf('-') !== -1) {
+      var sParts = dobStr.split('-');
+      if (sParts.length === 3) {
+        if (sParts[0].length === 4) {
+          bdayMD = sParts[1] + '-' + sParts[2];
+          bdayYear = parseInt(sParts[0], 10);
+        } else {
+          bdayMD = sParts[1] + '-' + sParts[0];
+          bdayYear = parseInt(sParts[2], 10);
+        }
+      }
+    }
+    if (bdayMD === todayMonthDay) {
+      var age = bdayYear > 1900 && bdayYear <= curYear ? (curYear - bdayYear) : (bp.age || '');
+      todayBdays.push({ id: bp.id, name: bp.name || 'Patient', age: age, phone: bp.phone || '' });
+    }
+  }
+
+  if (todayBdays.length > 0) {
+    var bdayBullets = todayBdays.map(function(b) {
+      return '• ' + dash_esc(b.name) + (b.age ? ' (' + b.age + ' yrs)' : '');
+    }).join('<br/>');
+
+    cards.push({
+      level: 'info',
+      badge: '🎂 Today\'s Birthdays (' + todayBdays.length + ')',
+      badgeBg: '#fef3c7',
+      badgeColor: '#b45309',
+      title: 'Wish ' + todayBdays.length + ' Patient' + (todayBdays.length > 1 ? 's' : '') + ' a Happy Birthday today!',
+      desc: '<div style="margin-top:4px;font-size:12.5px;color:#475569;line-height:1.5">' + bdayBullets + '</div>',
+      customButtons:
+        '<button class="dash2-notif-btn" data-act="bday-remind" style="background:#ecfdf5;color:#059669">🎉 Send WA Wishes</button>' +
+        '<button class="dash2-notif-btn" data-act="bday-view" style="background:#eff6ff;color:#1d4ed8">👥 View Patients</button>',
+      btnAction: function() {
+        if (typeof birthday_remindAll === 'function') birthday_remindAll();
+        else if (todayBdays[0]) openPatient(todayBdays[0].id);
+      }
+    });
+  }
+
+  // 🟢 8. New patients today
+  var newPtsCount = 0;
+  for (var npi = 0; npi < pts.length; npi++) {
+    var np = pts[npi];
+    if (np && (np.createdAt || '').slice(0, 10) === today) {
+      newPtsCount++;
+    }
+  }
+  if (newPtsCount > 0) {
+    cards.push({
+      level: 'info',
+      badge: '🟢 New Registrations',
+      badgeBg: '#ecfdf5',
+      badgeColor: '#065f46',
+      title: newPtsCount + ' New Patient' + (newPtsCount > 1 ? 's' : '') + ' Registered Today',
+      desc: 'All initial patient forms completed for today\'s new intake.',
+      btnText: 'View Patients List',
+      btnAction: function() { goPage('patients'); }
+    });
+  }
+
+  if (cards.length === 0) {
+    el.innerHTML =
+      '<div class="dash2-empty-banner">' +
+        '<span style="font-size:20px">✨</span>' +
+        '<div>' +
+          '<div style="font-weight:700;color:#0f172a;font-size:14px">All Clear — Smart Notification Center</div>' +
+          '<div style="font-size:12px;color:#64748b">No critical overdue items, high pending dues, or missed appointments pending.</div>' +
+        '</div>' +
+      '</div>';
+    return;
+  }
+
+  var visibleCount = dash_notifExpanded ? cards.length : Math.min(5, cards.length);
+  var visibleCards = cards.slice(0, visibleCount);
+
+  var html = '<div class="dash2-sec-head">' +
+    '<h3 class="dash2-sec-title">⚡ Smart Notification Center <span class="dash2-badge-count">' + cards.length + '</span></h3>' +
+    (cards.length > 5 ?
+      '<button class="dash2-toggle-btn" id="dash2-notif-toggle">' +
+        (dash_notifExpanded ? 'Show Less 🔼' : 'View All (' + cards.length + ') 🔽') +
+      '</button>' : '') +
+  '</div>';
+
+  html += '<div class="dash2-notif-list">';
+  for (var ci = 0; ci < visibleCards.length; ci++) {
+    var c = visibleCards[ci];
+    html +=
+      '<div class="dash2-notif-card dash2-notif-' + c.level + '">' +
+        '<div class="dash2-notif-left">' +
+          '<div class="dash2-notif-badge" style="background:' + c.badgeBg + ';color:' + c.badgeColor + '">' + c.badge + '</div>' +
+          '<div class="dash2-notif-title">' + c.title + '</div>' +
+          '<div class="dash2-notif-desc">' + c.desc + '</div>' +
+        '</div>' +
+        '<div class="dash2-notif-actions" data-card-idx="' + ci + '">' +
+          (c.customButtons ? c.customButtons :
+            (c.btnText ? '<button class="dash2-notif-btn" data-act="primary">' + c.btnText + '</button>' : '')) +
+        '</div>' +
+      '</div>';
+  }
+  html += '</div>';
+
+  el.innerHTML = html;
+
+  var toggleBtn = document.getElementById('dash2-notif-toggle');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', function() {
+      dash_notifExpanded = !dash_notifExpanded;
+      dash_renderNotifications();
+    });
+  }
+
+  var actionWraps = el.querySelectorAll('.dash2-notif-actions');
+  for (var awi = 0; awi < actionWraps.length; awi++) {
+    (function(wrap) {
+      var cIndex = parseInt(wrap.getAttribute('data-card-idx'), 10);
+      var cardObj = visibleCards[cIndex];
+      if (!cardObj) return;
+
+      var pBtn = wrap.querySelector('[data-act="primary"]');
+      if (pBtn && cardObj.btnAction) {
+        pBtn.addEventListener('click', cardObj.btnAction);
+      }
+
+      var openPtBtn = wrap.querySelector('[data-act="open-pt"]');
+      if (openPtBtn && cardObj.btnAction) {
+        openPtBtn.addEventListener('click', cardObj.btnAction);
+      }
+
+      var bdayRemindBtn = wrap.querySelector('[data-act="bday-remind"]');
+      if (bdayRemindBtn) {
+        bdayRemindBtn.addEventListener('click', function() {
+          if (typeof birthday_remindAll === 'function') birthday_remindAll();
+          else if (cardObj.btnAction) cardObj.btnAction();
+        });
+      }
+
+      var bdayViewBtn = wrap.querySelector('[data-act="bday-view"]');
+      if (bdayViewBtn) {
+        bdayViewBtn.addEventListener('click', function() {
+          goPage('patients');
+        });
+      }
+    })(actionWraps[awi]);
+  }
+}
+
+/* ── 4. TODAY\'S TIMELINE ── */
+function dash_renderTimeline() {
+  var el = document.getElementById('dash-timeline');
+  if (!el) return;
+
+  if (!window.DATA || !DATA.appointments) {
+    el.innerHTML = '<div style="padding:16px;color:#64748b;font-size:13px">Loading today\'s timeline...</div>';
+    return;
+  }
+
+  var today = dash_todayISO();
+  var appts = (DATA.appointments || []).filter(function(a) {
+    return a && a.date === today && a.status !== 'cancelled';
+  });
+
+  appts.sort(function(a, b) {
+    return String(a.time || '').localeCompare(String(b.time || ''));
+  });
+
+  var html = '<div class="dash2-box">' +
+    '<div class="dash2-box-header">' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:16px">📅</span>' +
+        '<h3 class="dash2-box-title">Today\'s Schedule & Timeline</h3>' +
+      '</div>' +
+      '<span class="dash2-count-pill" style="background:#eff6ff;color:#2563eb">' + appts.length + ' appt' + (appts.length !== 1 ? 's' : '') + '</span>' +
+    '</div>';
+
+  if (appts.length === 0) {
+    html += '<div class="dash2-empty-state">' +
+      '<span style="font-size:28px">🗓️</span>' +
+      '<div style="font-weight:700;color:#1e293b;margin-top:6px">No appointments scheduled for today</div>' +
+      '<div style="font-size:12px;color:#64748b;margin-top:2px">Click below to book an appointment.</div>' +
+      '<button class="dash2-action-btn-sm" id="dash2-btn-new-appt" style="margin-top:12px">➕ Book Appointment</button>' +
+    '</div></div>';
+    el.innerHTML = html;
+    var newApptBtn = document.getElementById('dash2-btn-new-appt');
+    if (newApptBtn) {
+      newApptBtn.addEventListener('click', function() { goPage('appointments'); });
+    }
+    return;
+  }
+
+  html += '<div class="dash2-timeline-list">';
+  for (var i = 0; i < appts.length; i++) {
+    var a = appts[i];
+    var pName = a.patientName || '';
+    if (!pName && a.patientId && DATA.patients) {
+      var foundP = DATA.patients.find(function(x) { return x && x.id === a.patientId; });
+      if (foundP) pName = foundP.name;
+    }
+    if (!pName) pName = 'Patient';
+
+    var rawStatus = (a.status || 'Waiting').toLowerCase();
+    var statusLabel = 'Waiting';
+    var badgeBg = '#fffbeb';
+    var badgeColor = '#b45309';
+    var badgeBorder = '#fde68a';
+
+    if (rawStatus === 'confirmed') {
+      statusLabel = 'Confirmed';
+      badgeBg = '#f0f9ff';
+      badgeColor = '#0369a1';
+      badgeBorder = '#bae6fd';
+    } else if (rawStatus === 'completed' || rawStatus === 'done') {
+      statusLabel = 'Completed';
+      badgeBg = '#ecfdf5';
+      badgeColor = '#059669';
+      badgeBorder = '#a7f3d0';
+    }
+
+    var timeDisplay = a.time || '--:--';
+    try {
+      if (timeDisplay.includes(':')) {
+        var tp = timeDisplay.split(':');
+        var hh = parseInt(tp[0], 10);
+        var mm = tp[1];
+        var ap = hh >= 12 ? 'PM' : 'AM';
+        var h12 = (hh % 12) || 12;
+        timeDisplay = h12 + ':' + mm + ' ' + ap;
+      }
+    } catch(e) {}
+
+    html +=
+      '<div class="dash2-timeline-row" data-pt-id="' + dash_esc(a.patientId || '') + '">' +
+        '<div class="dash2-tl-time">' + dash_esc(timeDisplay) + '</div>' +
+        '<div class="dash2-tl-main">' +
+          '<div class="dash2-tl-name">' + dash_esc(pName) + '</div>' +
+          '<div class="dash2-tl-proc">' + dash_esc(a.procedure || a.notes || 'General Checkup & Treatment') + '</div>' +
+        '</div>' +
+        '<div class="dash2-tl-status" style="background:' + badgeBg + ';color:' + badgeColor + ';border:1px solid ' + badgeBorder + '">' +
+          statusLabel +
+        '</div>' +
+      '</div>';
+  }
+  html += '</div></div>';
+
+  el.innerHTML = html;
+
+  var rows = el.querySelectorAll('.dash2-timeline-row');
+  for (var rIdx = 0; rIdx < rows.length; rIdx++) {
+    (function(row) {
+      var ptId = row.getAttribute('data-pt-id');
+      if (ptId) {
+        row.addEventListener('click', function() {
+          openPatient(ptId);
+        });
+      }
+    })(rows[rIdx]);
+  }
+}
+
+/* ── 5. INVENTORY ALERTS ── */
+function dash_renderInventoryAlerts() {
+  var el = document.getElementById('dash-inventory');
+  if (!el) return;
+
+  if (!window.DATA || !DATA.expenses) {
+    el.innerHTML = '<div style="padding:16px;color:#64748b;font-size:13px">Loading inventory alerts...</div>';
+    return;
+  }
+
+  var exp = DATA.expenses || [];
+  var lowStock = [];
+
+  for (var i = 0; i < exp.length; i++) {
+    var item = exp[i];
+    if (item && item.category === 'inventory') {
+      var minTh = Number(item.minThreshold || 0);
+      var qty = Number(item.quantity || 0);
+      // NEVER alert if minThreshold is 0 or undefined
+      if (minTh > 0 && qty <= minTh) {
+        lowStock.push({
+          item: item.item || item.name || 'Unnamed Item',
+          quantity: qty,
+          minThreshold: minTh,
+          unit: item.unit || 'units',
+          ratio: minTh > 0 ? (qty / minTh) : 1
+        });
+      }
+    }
+  }
+
+  lowStock.sort(function(a, b) { return a.ratio - b.ratio; });
+  var topLowStock = lowStock.slice(0, 5);
+
+  var html = '<div class="dash2-box">' +
+    '<div class="dash2-box-header">' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:16px">📦</span>' +
+        '<h3 class="dash2-box-title">Inventory & Stock Alerts</h3>' +
+      '</div>' +
+      '<span class="dash2-count-pill" style="background:' + (topLowStock.length > 0 ? '#fee2e2;color:#991b1b' : '#ecfdf5;color:#065f46') + '">' +
+        topLowStock.length + ' alert' + (topLowStock.length !== 1 ? 's' : '') +
+      '</span>' +
+    '</div>';
+
+  if (topLowStock.length === 0) {
+    html += '<div class="dash2-empty-state" style="padding:24px 16px">' +
+      '<span style="font-size:24px">✅</span>' +
+      '<div style="font-weight:700;color:#059669;margin-top:4px">All Stock Levels Healthy</div>' +
+      '<div style="font-size:12px;color:#64748b">No inventory item is below minimum threshold.</div>' +
+    '</div></div>';
+    el.innerHTML = html;
+    return;
+  }
+
+  html += '<div style="overflow-x:auto">' +
+    '<table class="dash2-table">' +
+      '<thead>' +
+        '<tr>' +
+          '<th style="text-align:left">Product</th>' +
+          '<th style="text-align:center">Remaining</th>' +
+          '<th style="text-align:center">Threshold</th>' +
+          '<th style="text-align:right">Unit</th>' +
+        '</tr>' +
+      '</thead>' +
+      '<tbody>';
+
+  for (var j = 0; j < topLowStock.length; j++) {
+    var row = topLowStock[j];
+    var isZero = row.quantity === 0;
+    html +=
+      '<tr>' +
+        '<td style="font-weight:600;color:#1e293b">' + dash_esc(row.item) + '</td>' +
+        '<td style="text-align:center"><span class="dash2-stock-badge" style="background:' + (isZero ? '#fee2e2;color:#dc2626' : '#fffbeb;color:#b45309') + '">' + row.quantity + '</span></td>' +
+        '<td style="text-align:center;color:#64748b;font-weight:600">' + row.minThreshold + '</td>' +
+        '<td style="text-align:right;color:#64748b;font-size:12px">' + dash_esc(row.unit) + '</td>' +
+      '</tr>';
+  }
+
+  html += '</tbody></table></div></div>';
+  el.innerHTML = html;
+}
+
+/* ── 6. QUICK NOTES ── */
+function dash_renderQuickNotes() {
+  var el = document.getElementById('dash-quick-notes');
+  if (!el) return;
+
+  var today = dash_todayISO();
+
+  if (!dash_quickNotesState) {
+    try {
+      var saved = localStorage.getItem('clinic_dash_quick_notes_v2');
+      if (saved) dash_quickNotesState = JSON.parse(saved);
+    } catch(e) {}
+    if (!dash_quickNotesState || !Array.isArray(dash_quickNotesState)) {
+      dash_quickNotesState = (window.DATA && Array.isArray(DATA.quickNotes)) ? DATA.quickNotes : [];
+    }
+  }
+
+  // Filter notes:
+  // - Checked notes from previous days are hidden
+  // - Unchecked notes from previous days carry forward
+  var visibleNotes = (dash_quickNotesState || []).filter(function(n) {
+    if (!n) return false;
+    var nDate = n.date || today;
+    if (nDate < today && n.checked) return false;
+    return true;
+  });
+
+  // Sorting: Pinned notes always sort to top
+  visibleNotes.sort(function(a, b) {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return (b.id || '').localeCompare(a.id || '');
+  });
+
+  var html = '<div class="dash2-box">' +
+    '<div class="dash2-box-header">' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:16px">📌</span>' +
+        '<h3 class="dash2-box-title">Doctor Quick Notes</h3>' +
+      '</div>' +
+      '<span class="dash2-count-pill" style="background:#f1f5f9;color:#475569">' + visibleNotes.length + ' active</span>' +
+    '</div>' +
+
+    '<div style="padding:12px 16px;border-bottom:1px solid #f1f5f9;background:#fafafa">' +
+      '<div style="display:flex;gap:8px">' +
+        '<input type="text" id="dash2-note-input" class="form-input" placeholder="Type a clinical note or task & press Enter..." style="font-size:13px;padding:8px 12px;border-radius:8px"/>' +
+        '<button id="dash2-note-add-btn" class="btn btn-primary btn-sm" style="padding:0 14px;border-radius:8px;font-weight:700">Add</button>' +
+      '</div>' +
+    '</div>';
+
+  if (visibleNotes.length === 0) {
+    html += '<div class="dash2-empty-state" style="padding:20px 16px">' +
+      '<span style="font-size:20px">📝</span>' +
+      '<div style="font-size:13px;color:#64748b;margin-top:4px">No notes yet. Jot down anything for today!</div>' +
+    '</div></div>';
+  } else {
+    html += '<div class="dash2-notes-list">';
+    for (var i = 0; i < visibleNotes.length; i++) {
+      var note = visibleNotes[i];
+      var isPast = (note.date || today) < today;
+      html +=
+        '<div class="dash2-note-item' + (note.checked ? ' dash2-note-done' : '') + (note.pinned ? ' dash2-note-pinned' : '') + '">' +
+          '<input type="checkbox" class="dash2-note-check" data-note-id="' + dash_esc(note.id) + '"' + (note.checked ? ' checked' : '') + ' style="cursor:pointer;width:16px;height:16px"/>' +
+          '<div class="dash2-note-text-wrap">' +
+            '<span class="dash2-note-text">' + dash_esc(note.text || '') + '</span>' +
+            (isPast ? '<span class="dash2-note-date-tag">Carried from ' + dash_fmtDate(note.date) + '</span>' : '') +
+          '</div>' +
+          '<button class="dash2-note-action-btn" data-act="pin" data-note-id="' + dash_esc(note.id) + '" title="' + (note.pinned ? 'Unpin note' : 'Pin to top') + '">' +
+            (note.pinned ? '📌' : '📍') +
+          '</button>' +
+          '<button class="dash2-note-action-btn" data-act="del" data-note-id="' + dash_esc(note.id) + '" title="Delete note" style="color:#ef4444">' +
+            '✕' +
+          '</button>' +
+        '</div>';
+    }
+    html += '</div></div>';
+  }
+
+  el.innerHTML = html;
+
+  function saveNotes() {
+    try {
+      localStorage.setItem('clinic_dash_quick_notes_v2', JSON.stringify(dash_quickNotesState));
+      if (window.DATA) DATA.quickNotes = dash_quickNotesState;
+    } catch(e) {}
+  }
+
+  function addNoteFromInput() {
+    var inp = document.getElementById('dash2-note-input');
+    if (!inp) return;
+    var txt = inp.value.trim();
+    if (!txt) return;
+    var newNote = {
+      id: 'qn_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      text: txt,
+      checked: false,
+      pinned: false,
+      date: today
+    };
+    if (!dash_quickNotesState) dash_quickNotesState = [];
+    dash_quickNotesState.unshift(newNote);
+    saveNotes();
+    dash_renderQuickNotes();
+  }
+
+  var addBtn = document.getElementById('dash2-note-add-btn');
+  if (addBtn) addBtn.addEventListener('click', addNoteFromInput);
+
+  var inpEl = document.getElementById('dash2-note-input');
+  if (inpEl) {
+    inpEl.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addNoteFromInput();
+      }
+    });
+  }
+
+  var checks = el.querySelectorAll('.dash2-note-check');
+  for (var ci = 0; ci < checks.length; ci++) {
+    (function(chk) {
+      chk.addEventListener('change', function() {
+        var nid = chk.getAttribute('data-note-id');
+        var found = (dash_quickNotesState || []).find(function(n) { return n.id === nid; });
+        if (found) {
+          found.checked = chk.checked;
+          saveNotes();
+          dash_renderQuickNotes();
+        }
+      });
+    })(checks[ci]);
+  }
+
+  var pinBtns = el.querySelectorAll('[data-act="pin"]');
+  for (var pi = 0; pi < pinBtns.length; pi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        var nid = btn.getAttribute('data-note-id');
+        var found = (dash_quickNotesState || []).find(function(n) { return n.id === nid; });
+        if (found) {
+          found.pinned = !found.pinned;
+          saveNotes();
+          dash_renderQuickNotes();
+        }
+      });
+    })(pinBtns[pi]);
+  }
+
+  var delBtns = el.querySelectorAll('[data-act="del"]');
+  for (var di = 0; di < delBtns.length; di++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        var nid = btn.getAttribute('data-note-id');
+        dash_quickNotesState = (dash_quickNotesState || []).filter(function(n) { return n.id !== nid; });
+        saveNotes();
+        dash_renderQuickNotes();
+      });
+    })(delBtns[di]);
+  }
+}
+
+/* ── 7. PENDING PAYMENTS WIDGET ── */
+function dash_renderPendingPayments() {
+  var el = document.getElementById('dash-pending');
+  if (!el) return;
+
+  if (!window.DATA || !DATA.patients) {
+    el.innerHTML = '<div style="padding:16px;color:#64748b;font-size:13px">Loading pending payments...</div>';
+    return;
+  }
+
+  var pts = DATA.patients || [];
+  var fmr = DATA.fmrCases || [];
+  var duesMap = {};
+
+  // Scan patient billing arrays
+  for (var i = 0; i < pts.length; i++) {
+    var p = pts[i];
+    if (!p) continue;
+    var unpaid = (p.billing || []).filter(function(b) {
+      return !b.paid && (Number(b.totalAmount || b.amount || 0) > Number(b.paidAmount || 0));
+    });
+    var sumDue = unpaid.reduce(function(acc, b) {
+      return acc + (Number(b.totalAmount || b.amount || 0) - Number(b.paidAmount || 0));
+    }, 0);
+
+    if (sumDue > 0) {
+      var lastVisit = '';
+      if (p.records && p.records.length) {
+        var sortedR = p.records.slice().sort(function(a, b) {
+          return String(b.date || '').localeCompare(String(a.date || ''));
+        });
+        lastVisit = sortedR[0].date || '';
+      }
+      duesMap[p.id] = {
+        patientId: p.id,
+        name: p.name || 'Patient',
+        phone: p.phone || '',
+        lastVisit: lastVisit,
+        dueAmount: Math.round(sumDue),
+        firstBillId: unpaid[0] ? unpaid[0].id : null
+      };
+    }
+  }
+
+  // Scan FMR cases for pending balances
+  for (var fi = 0; fi < fmr.length; fi++) {
+    var fc = fmr[fi];
+    if (!fc || !fc.patientId) continue;
+    var totCost = typeof fmr_calcTotal === 'function' ? fmr_calcTotal(fc) : Number(fc.totalCost || 0);
+    var paidAmt = Number(fc.paidAmount || 0);
+    var fmrDue = totCost - paidAmt;
+    if (fmrDue > 0) {
+      if (duesMap[fc.patientId]) {
+        duesMap[fc.patientId].dueAmount += Math.round(fmrDue);
+      } else {
+        duesMap[fc.patientId] = {
+          patientId: fc.patientId,
+          name: fc.patientName || 'FMR Patient',
+          phone: fc.phone || '',
+          lastVisit: '',
+          dueAmount: Math.round(fmrDue),
+          firstBillId: null
+        };
+      }
+    }
+  }
+
+  var duesList = Object.values(duesMap);
+  duesList.sort(function(a, b) { return b.dueAmount - a.dueAmount; });
+  var topDues = duesList.slice(0, 5);
+
+  var html = '<div class="dash2-box">' +
+    '<div class="dash2-box-header">' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:16px">⚠️</span>' +
+        '<h3 class="dash2-box-title">Pending Patient Balances</h3>' +
+      '</div>' +
+      '<span class="dash2-count-pill" style="background:#fef3c7;color:#b45309">' + topDues.length + ' of ' + duesList.length + ' due</span>' +
+    '</div>';
+
+  if (topDues.length === 0) {
+    html += '<div class="dash2-empty-state" style="padding:24px 16px">' +
+      '<span style="font-size:24px">✅</span>' +
+      '<div style="font-weight:700;color:#059669;margin-top:4px">All Accounts Settled</div>' +
+      '<div style="font-size:12px;color:#64748b">No outstanding patient billing balances pending.</div>' +
+    '</div></div>';
+    el.innerHTML = html;
+    return;
+  }
+
+  html += '<div class="dash2-dues-list">';
+  for (var j = 0; j < topDues.length; j++) {
+    var d = topDues[j];
+    var cleanPhone = (d.phone || '').replace(/[^0-9]/g, '');
+    if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+
+    html +=
+      '<div class="dash2-due-row">' +
+        '<div class="dash2-due-info" data-pt-id="' + dash_esc(d.patientId) + '" style="cursor:pointer">' +
+          '<div style="font-weight:700;color:#1e293b;font-size:14px">' + dash_esc(d.name) + '</div>' +
+          '<div style="font-size:12px;color:#64748b;margin-top:2px">' +
+            (d.lastVisit ? 'Last visit: ' + dash_fmtDate(d.lastVisit) : (d.phone ? 'Phone: ' + d.phone : 'No visit history')) +
+          '</div>' +
+        '</div>' +
+        '<div class="dash2-due-right">' +
+          '<div class="dash2-due-amount">' + dash_fmtMoney(d.dueAmount) + '</div>' +
+          '<div class="dash2-due-actions">' +
+            (d.phone ? '<a href="tel:' + d.phone + '" class="dash2-btn-sm" style="background:#eff6ff;color:#1d4ed8;text-decoration:none" title="Call">📞 Call</a>' : '') +
+            (cleanPhone ? '<a href="https://wa.me/' + cleanPhone + '?text=' + encodeURIComponent('Dear ' + d.name + ', gentle reminder regarding pending clinic dues of ' + dash_fmtMoney(d.dueAmount) + ' at ' + (typeof CLINIC !== 'undefined' ? CLINIC : 'HomeOfSmiles') + '. Thank you!') + '" target="_blank" class="dash2-btn-sm" style="background:#ecfdf5;color:#059669;text-decoration:none" title="WhatsApp">💬 WA</a>' : '') +
+            '<button class="dash2-btn-sm dash2-btn-collect" data-pt-id="' + dash_esc(d.patientId) + '" data-bill-id="' + dash_esc(d.firstBillId || '') + '">💰 Collect</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  html += '</div></div>';
+  el.innerHTML = html;
+
+  var ptInfos = el.querySelectorAll('.dash2-due-info');
+  for (var pii = 0; pii < ptInfos.length; pii++) {
+    (function(info) {
+      info.addEventListener('click', function() {
+        var ptId = info.getAttribute('data-pt-id');
+        if (ptId) openPatient(ptId);
+      });
+    })(ptInfos[pii]);
+  }
+
+  var collectBtns = el.querySelectorAll('.dash2-btn-collect');
+  for (var cbi = 0; cbi < collectBtns.length; cbi++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        var ptId = btn.getAttribute('data-pt-id');
+        var billId = btn.getAttribute('data-bill-id');
+        dash_collectPayment(ptId, billId);
+      });
+    })(collectBtns[cbi]);
+  }
+}
+
+/* ── 8. MORNING HUDDLE MODAL ── */
+function dash_renderHuddle() {
+  var modalId = 'dash2-huddle-modal';
+  var existing = document.getElementById(modalId);
+  if (existing) existing.remove();
+
+  if (!window.DATA || !DATA.patients) {
+    if (typeof showToast === 'function') showToast('Patient data is loading, please wait...');
+    return;
+  }
+
+  var today = dash_todayISO();
+  var appts = DATA.appointments || [];
+  var pts = DATA.patients || [];
+  var aligners = DATA.alignerCases || [];
+  var fmr = DATA.fmrCases || [];
+  var exp = DATA.expenses || [];
+
+  // Live Calculations
+  var todayAppts = appts.filter(function(a) { return a.date === today && a.status !== 'cancelled'; }).length;
+
+  var orthoReviews = pts.filter(function(p) {
+    return (p.type === 'ortho' || (p.treatmentStatus || '').toLowerCase().includes('ortho')) && p.nextAppt && p.nextAppt <= today;
+  }).length;
+
+  var alignerDue = 0;
+  var alignerOverdue = 0;
+  for (var aci = 0; aci < aligners.length; aci++) {
+    var ac = aligners[aci];
+    var st = dash_alnStatus(ac);
+    var nd = dash_alnNextDue(ac);
+    if (st === 'active' || st === 'ongoing') {
+      if (nd === today) alignerDue++;
+      else if (nd && nd < today) alignerOverdue++;
+    }
+  }
+
+  var activeFmr = fmr.filter(function(c) { return c && c.status !== 'completed' && c.status !== 'cancelled'; }).length;
+
+  var pendingColl = 0;
+  for (var pi = 0; pi < pts.length; pi++) {
+    var pt = pts[pi];
+    if (pt && pt.billing) {
+      for (var bi = 0; bi < pt.billing.length; bi++) {
+        var b = pt.billing[bi];
+        if (b && !b.paid) {
+          var due = Number(b.totalAmount || b.amount || 0) - Number(b.paidAmount || 0);
+          if (due > 0) pendingColl += due;
+        }
+      }
+    }
+  }
+
+  var labReady = 0;
+  for (var fi = 0; fi < fmr.length; fi++) {
+    var fc = fmr[fi];
+    if (fc && fc.teeth) {
+      var tk = Object.keys(fc.teeth);
+      for (var ti = 0; ti < tk.length; ti++) {
+        var th = fc.teeth[tk[ti]];
+        if (th && th.status === 'inlab' && th.crownReturnDate && th.crownReturnDate <= today) {
+          labReady++;
+        }
+      }
+    }
+  }
+
+  var lowStockItems = [];
+  for (var ei = 0; ei < exp.length; ei++) {
+    var it = exp[ei];
+    if (it && it.category === 'inventory') {
+      var thVal = Number(it.minThreshold || 0);
+      var qVal = Number(it.quantity || 0);
+      if (thVal > 0 && qVal <= thVal) {
+        lowStockItems.push(it.item || 'Item');
+      }
+    }
+  }
+
+  var modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'dash2-modal-overlay';
+  modal.innerHTML =
+    '<div class="dash2-modal-card">' +
+      '<div class="dash2-modal-header">' +
+        '<div style="display:flex;align-items:center;gap:10px">' +
+          '<span style="font-size:24px">☀️</span>' +
+          '<div>' +
+            '<h2 style="margin:0;font-size:18px;font-weight:800;color:#1e293b">Morning Clinical Huddle</h2>' +
+            '<div style="font-size:12px;color:#64748b;margin-top:2px">' + dash_fmtDate(today) + ' • Daily Practice Briefing</div>' +
+          '</div>' +
+        '</div>' +
+        '<button class="dash2-modal-close" id="dash2-huddle-close">✕</button>' +
+      '</div>' +
+
+      '<div class="dash2-modal-body">' +
+        '<div class="dash2-huddle-greeting">' +
+          'Good Morning Dr. Tanmay 👋' +
+        '</div>' +
+        '<div class="dash2-huddle-subtitle">Here is your clinical schedule & action briefing for today:</div>' +
+
+        '<div class="dash2-huddle-list">' +
+          '<div class="dash2-huddle-row">' +
+            '<span class="dash2-huddle-icon">📅</span>' +
+            '<span class="dash2-huddle-text"><strong>' + todayAppts + '</strong> appointment' + (todayAppts !== 1 ? 's' : '') + ' scheduled today</span>' +
+          '</div>' +
+
+          '<div class="dash2-huddle-row">' +
+            '<span class="dash2-huddle-icon">🦷</span>' +
+            '<span class="dash2-huddle-text"><strong>' + orthoReviews + '</strong> orthodontic review' + (orthoReviews !== 1 ? 's' : '') + ' due</span>' +
+          '</div>' +
+
+          '<div class="dash2-huddle-row">' +
+            '<span class="dash2-huddle-icon">💎</span>' +
+            '<span class="dash2-huddle-text">' +
+              '<strong>' + (alignerDue + alignerOverdue) + '</strong> aligner set change' + ((alignerDue + alignerOverdue) !== 1 ? 's' : '') + ' due' +
+              (alignerOverdue > 0 ? ' <span style="color:#dc2626;font-weight:700">(' + alignerOverdue + ' overdue)</span>' : '') +
+            '</span>' +
+          '</div>' +
+
+          '<div class="dash2-huddle-row">' +
+            '<span class="dash2-huddle-icon">🔬</span>' +
+            '<span class="dash2-huddle-text"><strong>' + activeFmr + '</strong> active FMR case' + (activeFmr !== 1 ? 's' : '') + ' in treatment</span>' +
+          '</div>' +
+
+          '<div class="dash2-huddle-row">' +
+            '<span class="dash2-huddle-icon">💰</span>' +
+            '<span class="dash2-huddle-text"><strong>' + dash_fmtMoney(pendingColl) + '</strong> total pending patient collections</span>' +
+          '</div>' +
+
+          '<div class="dash2-huddle-row">' +
+            '<span class="dash2-huddle-icon">🧪</span>' +
+            '<span class="dash2-huddle-text"><strong>' + labReady + '</strong> lab case' + (labReady !== 1 ? 's' : '') + ' ready for patient delivery</span>' +
+          '</div>' +
+
+          '<div class="dash2-huddle-row">' +
+            '<span class="dash2-huddle-icon">📦</span>' +
+            '<span class="dash2-huddle-text">' +
+              (lowStockItems.length > 0 ?
+                '<strong>' + lowStockItems.length + '</strong> item' + (lowStockItems.length > 1 ? 's' : '') + ' running low on stock (' + dash_esc(lowStockItems.slice(0, 3).join(', ')) + (lowStockItems.length > 3 ? '...' : '') + ')' :
+                'All inventory stock levels optimal') +
+            '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="dash2-modal-footer">' +
+        '<button class="btn btn-ghost btn-sm" id="dash2-huddle-refresh">🔄 Refresh Briefing</button>' +
+        '<button class="btn btn-primary btn-sm" id="dash2-huddle-done" style="padding:8px 22px">Done</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(modal);
+
+  document.getElementById('dash2-huddle-close').addEventListener('click', function() { modal.remove(); });
+  document.getElementById('dash2-huddle-done').addEventListener('click', function() { modal.remove(); });
+  document.getElementById('dash2-huddle-refresh').addEventListener('click', function() {
+    dash_renderHuddle();
+  });
+  modal.addEventListener('click', function(e) {
+    if (e.target === modal) modal.remove();
+  });
+}
+
+/* ── 9. MASTER DASHBOARD 2.0 RENDERER ── */
+function dash_renderDashboard() {
+  try {
+    var dashPage = document.getElementById('page-dashboard');
+    if (!dashPage) return;
+
+    // Guard against uninitialized DATA
+    if (!window.DATA || !DATA.patients) {
+      var existingRoot = document.getElementById('dash-2-root');
+      if (!existingRoot) {
+        existingRoot = document.createElement('div');
+        existingRoot.id = 'dash-2-root';
+        dashPage.appendChild(existingRoot);
+      }
+      existingRoot.innerHTML =
+        '<div style="text-align:center;padding:40px 20px;background:#fff;border-radius:16px;border:1px solid #e2e8f0;margin:20px 0">' +
+          '<div class="spinner" style="width:36px;height:36px;margin:0 auto 12px;border:3px solid #e2e8f0;border-top-color:#1e3a5f;border-radius:50%;animation:spin 1s linear infinite"></div>' +
+          '<div style="font-weight:700;color:#1e3a5f;font-size:16px">Loading Clinical Dashboard 2.0...</div>' +
+          '<div style="font-size:12px;color:#64748b;margin-top:4px">Aggregating appointments, patient records, and financial summaries</div>' +
+        '</div>';
+      return;
+    }
+
+    // Ensure Dashboard 2.0 root structure exists
+    var root = document.getElementById('dash-2-root');
+    if (!root) {
+      root = document.createElement('div');
+      root.id = 'dash-2-root';
+      root.className = 'dash2-root-container';
+      root.innerHTML =
+        '<div id="dash-action-cards" style="margin-bottom:16px"></div>' +
+        '<div id="dash-quick-actions" style="margin-bottom:16px"></div>' +
+        '<div id="dash-notifications" style="margin-bottom:20px"></div>' +
+        '<div class="dash2-main-grid">' +
+          '<div class="dash2-col-left">' +
+            '<div id="dash-timeline" style="margin-bottom:20px"></div>' +
+            '<div id="dash-pending" style="margin-bottom:20px"></div>' +
+          '</div>' +
+          '<div class="dash2-col-right">' +
+            '<div id="dash-inventory" style="margin-bottom:20px"></div>' +
+            '<div id="dash-quick-notes" style="margin-bottom:20px"></div>' +
+          '</div>' +
+        '</div>';
+
+      // Insert at the appropriate position inside page-dashboard
+      var alertEl = document.getElementById('dash-alerts');
+      var dateEl = document.getElementById('dash-date');
+      if (alertEl && alertEl.nextSibling) {
+        dashPage.insertBefore(root, alertEl.nextSibling);
+      } else if (dateEl && dateEl.nextSibling) {
+        dashPage.insertBefore(root, dateEl.nextSibling);
+      } else {
+        dashPage.appendChild(root);
+      }
+    }
+
+    // Render each component in sequence with isolated try/catch for stability
+    try { dash_renderActionCards(); } catch (e1) { console.error('dash_renderActionCards error:', e1); }
+    try { dash_renderQuickActions(); } catch (e2) { console.error('dash_renderQuickActions error:', e2); }
+    try { dash_renderNotifications(); } catch (e3) { console.error('dash_renderNotifications error:', e3); }
+    try { dash_renderTimeline(); } catch (e4) { console.error('dash_renderTimeline error:', e4); }
+    try { dash_renderPendingPayments(); } catch (e5) { console.error('dash_renderPendingPayments error:', e5); }
+    try { dash_renderInventoryAlerts(); } catch (e6) { console.error('dash_renderInventoryAlerts error:', e6); }
+    try { dash_renderQuickNotes(); } catch (e7) { console.error('dash_renderQuickNotes error:', e7); }
+
+  } catch (err) {
+    console.error('dash_renderDashboard master error:', err);
+    var el = document.getElementById('page-dashboard');
+    if (el && !document.getElementById('dash2-error-banner')) {
+      var errDiv = document.createElement('div');
+      errDiv.id = 'dash2-error-banner';
+      errDiv.style.cssText = 'background:#fee2e2;color:#991b1b;padding:12px 16px;border-radius:10px;margin:10px 0;font-size:13px;font-weight:600';
+      errDiv.textContent = 'Notice: Dashboard updated with fallback display. All patient records are safe and accessible.';
+      el.insertBefore(errDiv, el.firstChild);
+    }
+  }
+}
+
+/* ── 10. INITIALIZATION & STYLES INJECTION ── */
+function dash_injectStyles() {
+  if (document.getElementById('dash2-styles')) return;
+  var st = document.createElement('style');
+  st.id = 'dash2-styles';
+  st.textContent =
+    '.dash2-root-container { font-family: inherit; margin-top: 10px; }' +
+    '.dash2-cards-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; }' +
+    '@media(max-width:960px){ .dash2-cards-grid { grid-template-columns: repeat(2, 1fr); } }' +
+    '@media(max-width:540px){ .dash2-cards-grid { grid-template-columns: 1fr; } }' +
+    '.dash2-stat-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.03); cursor: pointer; transition: all .2s ease; position: relative; overflow: hidden; }' +
+    '.dash2-stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.06); border-color: #cbd5e1; }' +
+    '.dash2-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }' +
+    '.dash2-card-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; }' +
+    '.dash2-card-tag { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 12px; text-transform: uppercase; letter-spacing: .3px; }' +
+    '.dash2-card-num { font-size: 26px; font-weight: 800; color: #1e3a5f; line-height: 1.1; font-family: "Outfit", sans-serif; }' +
+    '.dash2-card-label { font-size: 12px; font-weight: 600; color: #64748b; margin-top: 4px; }' +
+    '.dash2-qa-bar { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }' +
+    '@media(max-width:860px){ .dash2-qa-bar { grid-template-columns: repeat(3, 1fr); } }' +
+    '@media(max-width:480px){ .dash2-qa-bar { grid-template-columns: repeat(2, 1fr); } }' +
+    '.dash2-qa-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 14px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; font-size: 13px; font-weight: 700; color: #1e293b; cursor: pointer; transition: all .15s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }' +
+    '.dash2-qa-btn:hover { background: #f8fafc; border-color: #cbd5e1; transform: translateY(-1px); }' +
+    '.dash2-qa-btn-highlight { background: linear-gradient(135deg, #1e3a5f, #0f172a); color: #fff; border-color: #0f172a; }' +
+    '.dash2-qa-btn-highlight:hover { background: linear-gradient(135deg, #2d4f7c, #1e293b); color: #fff; }' +
+    '.dash2-sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }' +
+    '.dash2-sec-title { margin: 0; font-size: 15px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px; }' +
+    '.dash2-badge-count { background: #e0f2fe; color: #0369a1; font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 10px; }' +
+    '.dash2-toggle-btn { background: none; border: none; color: #2563eb; font-size: 12px; font-weight: 700; cursor: pointer; padding: 4px 8px; }' +
+    '.dash2-notif-list { display: flex; flex-direction: column; gap: 8px; }' +
+    '.dash2-notif-card { display: flex; align-items: center; justify-content: space-between; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); flex-wrap: wrap; gap: 10px; }' +
+    '.dash2-notif-critical { border-left: 4px solid #ef4444; background: #fffaf0; }' +
+    '.dash2-notif-important { border-left: 4px solid #f59e0b; }' +
+    '.dash2-notif-info { border-left: 4px solid #10b981; }' +
+    '.dash2-notif-left { flex: 1; min-width: 240px; }' +
+    '.dash2-notif-badge { display: inline-block; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 6px; text-transform: uppercase; margin-bottom: 4px; }' +
+    '.dash2-notif-title { font-size: 13.5px; font-weight: 700; color: #0f172a; }' +
+    '.dash2-notif-desc { font-size: 12px; color: #64748b; margin-top: 2px; }' +
+    '.dash2-notif-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }' +
+    '.dash2-notif-btn { background: #1e3a5f; color: #fff; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 6px 14px; cursor: pointer; transition: all .15s ease; }' +
+    '.dash2-notif-btn:hover { opacity: 0.9; transform: translateY(-1px); }' +
+    '.dash2-empty-banner { display: flex; align-items: center; gap: 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 12px 18px; color: #166534; }' +
+    '.dash2-main-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; }' +
+    '@media(max-width:900px){ .dash2-main-grid { grid-template-columns: 1fr; } }' +
+    '.dash2-box { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.03); overflow: hidden; }' +
+    '.dash2-box-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid #f1f5f9; background: #fafafa; }' +
+    '.dash2-box-title { margin: 0; font-size: 14px; font-weight: 800; color: #1e293b; }' +
+    '.dash2-count-pill { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 10px; }' +
+    '.dash2-timeline-list { display: flex; flex-direction: column; }' +
+    '.dash2-timeline-row { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid #f8fafc; cursor: pointer; transition: background .15s ease; }' +
+    '.dash2-timeline-row:hover { background: #f8fafc; }' +
+    '.dash2-timeline-row:last-child { border-bottom: none; }' +
+    '.dash2-tl-time { font-size: 12px; font-weight: 800; color: #1e3a5f; min-width: 70px; background: #f1f5f9; padding: 4px 8px; border-radius: 6px; text-align: center; }' +
+    '.dash2-tl-main { flex: 1; min-width: 0; }' +
+    '.dash2-tl-name { font-size: 13.5px; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+    '.dash2-tl-proc { font-size: 11.5px; color: #64748b; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+    '.dash2-tl-status { font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 8px; text-transform: uppercase; letter-spacing: .3px; }' +
+    '.dash2-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }' +
+    '.dash2-table th { padding: 10px 16px; background: #f8fafc; color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; }' +
+    '.dash2-table td { padding: 11px 16px; border-bottom: 1px solid #f8fafc; }' +
+    '.dash2-table tr:last-child td { border-bottom: none; }' +
+    '.dash2-stock-badge { font-weight: 800; padding: 3px 8px; border-radius: 6px; font-size: 12px; }' +
+    '.dash2-notes-list { display: flex; flex-direction: column; max-height: 280px; overflow-y: auto; }' +
+    '.dash2-note-item { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #f8fafc; }' +
+    '.dash2-note-item:last-child { border-bottom: none; }' +
+    '.dash2-note-done .dash2-note-text { text-decoration: line-through; color: #94a3b8; }' +
+    '.dash2-note-pinned { background: #fffdf5; }' +
+    '.dash2-note-text-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; }' +
+    '.dash2-note-text { font-size: 13px; color: #1e293b; font-weight: 500; word-break: break-word; }' +
+    '.dash2-note-date-tag { font-size: 10px; color: #d97706; font-weight: 700; margin-top: 2px; }' +
+    '.dash2-note-action-btn { background: none; border: none; cursor: pointer; font-size: 13px; padding: 2px 4px; border-radius: 4px; color: #64748b; }' +
+    '.dash2-note-action-btn:hover { background: #e2e8f0; color: #1e293b; }' +
+    '.dash2-dues-list { display: flex; flex-direction: column; }' +
+    '.dash2-due-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid #f8fafc; gap: 12px; flex-wrap: wrap; }' +
+    '.dash2-due-row:last-child { border-bottom: none; }' +
+    '.dash2-due-amount { font-size: 14.5px; font-weight: 800; color: #dc2626; text-align: right; }' +
+    '.dash2-due-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }' +
+    '.dash2-due-actions { display: flex; align-items: center; gap: 5px; }' +
+    '.dash2-btn-sm { padding: 4px 9px; font-size: 11px; font-weight: 700; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; color: #334155; cursor: pointer; }' +
+    '.dash2-btn-collect { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }' +
+    '.dash2-btn-collect:hover { background: #dbeafe; }' +
+    '.dash2-empty-state { text-align: center; padding: 28px 16px; color: #64748b; }' +
+    '.dash2-action-btn-sm { background: #1e3a5f; color: #fff; border: none; font-size: 12px; font-weight: 700; padding: 7px 16px; border-radius: 8px; cursor: pointer; }' +
+    '.dash2-modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.6); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 16px; backdrop-filter: blur(3px); }' +
+    '.dash2-modal-card { background: #fff; border-radius: 18px; max-width: 520px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.2); overflow: hidden; animation: popIn .2s ease-out; }' +
+    '@keyframes popIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }' +
+    '.dash2-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid #e2e8f0; background: #fafafa; }' +
+    '.dash2-modal-close { background: none; border: none; font-size: 16px; color: #64748b; cursor: pointer; font-weight: 700; }' +
+    '.dash2-modal-body { padding: 22px; }' +
+    '.dash2-huddle-greeting { font-size: 18px; font-weight: 800; color: #1e3a5f; }' +
+    '.dash2-huddle-subtitle { font-size: 13px; color: #64748b; margin: 4px 0 16px; }' +
+    '.dash2-huddle-list { display: flex; flex-direction: column; gap: 10px; }' +
+    '.dash2-huddle-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #f8fafc; border-radius: 10px; border: 1px solid #f1f5f9; }' +
+    '.dash2-huddle-icon { font-size: 18px; min-width: 24px; text-align: center; }' +
+    '.dash2-huddle-text { font-size: 13.5px; color: #1e293b; }' +
+    '.dash2-modal-footer { display: flex; align-items: center; justify-content: space-between; padding: 14px 22px; border-top: 1px solid #e2e8f0; background: #f8fafc; }';
+
+  document.head.appendChild(st);
+}
+
+function dash_initDashboard() {
+  try {
+    dash_injectStyles();
+    if (typeof curPage !== 'undefined' && curPage === 'dashboard') {
+      dash_renderDashboard();
+    }
+  } catch(e) {
+    console.error('dash_initDashboard error:', e);
+  }
+}
+
+// Auto-call init on load/ready
+if (typeof window !== 'undefined') {
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(dash_initDashboard, 100);
+  } else {
+    window.addEventListener('DOMContentLoaded', dash_initDashboard);
+    window.addEventListener('load', dash_initDashboard);
+  }
+}

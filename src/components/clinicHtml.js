@@ -147,9 +147,7 @@ export const CLINIC_HTML = `
       <div class="nav-item" id="nav-billing"      onclick="goPage('billing')">💰 Billing Overview</div>
       <div class="nav-item" id="nav-fee-schedule" onclick="goPage('fee-schedule')">📋 Fee Schedule</div>
       <div class="nav-item" id="nav-dues"          onclick="goPage('dues')">⚠️ Outstanding Dues</div>
-      <div class="nav-item" id="nav-leads"         onclick="goPage('leads')">🎯 Leads & Follow-ups</div>
       <div class="nav-item" id="nav-pending-tx" onclick="goPage('pending-tx')">📋 Pending Tx</div>
-      <div class="nav-item" id="nav-waitingroom" onclick="goPage('waitingroom');wr_renderPending()">🪑 Waiting Room</div>
       <div class="nav-item" id="nav-lab"          onclick="goPage('lab')">🏭 Lab Work</div>
       <div class="nav-item" id="nav-inventory"    onclick="goPage('inventory')">📦 Inventory</div>
       <div class="nav-item" id="nav-queue"        onclick="goPage('queue')">🎫 Patient Queue</div>
