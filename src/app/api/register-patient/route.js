@@ -45,25 +45,6 @@ export async function POST(request) {
     const { db } = await connectToDatabase();
     const patientCollection = db.collection('patients');
 
-    // Check if patient already exists with this phone number
-    const existing = await patientCollection.findOne({
-      $or: [{ phone: cleanPhone }, { phone: phone.trim() }],
-    });
-
-    if (existing) {
-      const patientId = existing.id || existing._id;
-      return NextResponse.json({
-        success: true,
-        isExisting: true,
-        patient: {
-          ...existing,
-          id: patientId,
-          _id: patientId,
-        },
-        message: `Patient "${existing.name}" is already registered with this phone number.`,
-      });
-    }
-
     const todayStr = new Date().toISOString().slice(0, 10);
     const docId =
       'PT' +

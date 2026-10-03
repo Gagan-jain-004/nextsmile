@@ -479,7 +479,7 @@ export default function RegisterPage() {
                     maxLength={10}
                     value={formData.phone}
                     onChange={(e) =>
-                      setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '') })
+                      setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })
                     }
                     required
                   />
