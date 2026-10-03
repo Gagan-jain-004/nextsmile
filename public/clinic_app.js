@@ -272,7 +272,7 @@ async function saveData(options = {}) {
       const initRes = await fetch('/api/save-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ action: 'init_import', config: otherFields })
+        body: JSON.stringify({ action: 'save_config', config: otherFields })
       });
       if (!initRes.ok) throw new Error(await initRes.text());
 
@@ -387,6 +387,42 @@ async function loadDataFromDB() {
     if (!DATA) DATA = getDefaultData();
   }
   return DATA;
+}
+
+async function syncPatientsFromDB(isManual) {
+  var token = localStorage.getItem('hos_session_token');
+  if (!token) return;
+  try {
+    var res = await fetch('/api/get-data', {
+      method: 'GET',
+      headers: getAuthHeader()
+    });
+    if (!res.ok) return;
+    var body = await res.json();
+    if (body && body.data && Array.isArray(body.data.patients)) {
+      var dbPatients = body.data.patients;
+      if (!DATA) DATA = getDefaultData();
+      if (!Array.isArray(DATA.patients)) DATA.patients = [];
+      var localMap = {};
+      DATA.patients.forEach(function(p){ if(p && p.id) localMap[p.id] = true; });
+      var newCount = 0;
+      dbPatients.forEach(function(dbP){
+        if (dbP && dbP.id && !localMap[dbP.id]) {
+          DATA.patients.unshift(dbP);
+          localMap[dbP.id] = true;
+          newCount++;
+        }
+      });
+      if (newCount > 0) {
+        if (curPage === 'patients' && typeof renderPatientList === 'function') renderPatientList();
+        if (curPage === 'dashboard' && typeof renderDashboard === 'function') renderDashboard();
+        showSavedToast('🔔 ' + newCount + ' new patient' + (newCount > 1 ? 's' : '') + ' synced!');
+      } else if (isManual === true) {
+        if (curPage === 'patients' && typeof renderPatientList === 'function') renderPatientList();
+        showSavedToast('✅ Patients up to date');
+      }
+    }
+  } catch(e) { console.warn('Sync error:', e); }
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1092,7 +1128,7 @@ function goPage(id) {
   if (nav) nav.classList.add(FINANCE_PAGES.includes(id)?'finance-active':APPT_PAGES.includes(id)?'appt-active':'active');
   closeSidebar();
   const renders = {
-    dashboard:renderDashboard, patients:function(){renderPatientList();setTimeout(searchHist_render,50);},
+    dashboard:renderDashboard, patients:function(){renderPatientList();setTimeout(searchHist_render,50);if(typeof syncPatientsFromDB==="function")syncPatientsFromDB(true);},
     records:renderRecordsGlobal, images:renderImagesGlobal,
     billing:renderBillingGlobal, dues:renderDuesDashboard,
     'fee-schedule':function(){feeSchedule_renderPage();},
@@ -1967,6 +2003,13 @@ function deletePatient(id) {
   const p = DATA.patients.find(x=>x.id===id); if(!p) return;
   if(!confirm('Delete patient "'+p.name+'" ('+p.id+')?\n\nThis will permanently remove ALL their records, images, prescriptions, and billing data.\n\nThis cannot be undone.')) return;
   DATA.patients = DATA.patients.filter(x=>x.id!==id);
+  try {
+    fetch('/api/save-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ action: 'delete_patient', patientId: id })
+    }).catch(function(err){ console.error('Delete error:', err); });
+  } catch(e){}
   saveData(); goPage('patients');
 }
 function confirmDeletePatient() { if(activePt) deletePatient(activePt.id); }

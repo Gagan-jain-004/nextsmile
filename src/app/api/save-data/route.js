@@ -16,7 +16,34 @@ export async function POST(request) {
 
     const { db } = await connectToDatabase();
 
-    // ── ACTION 1: Initialize Import ──
+    // ── ACTION 0: Delete Single Patient ──
+    if (action === 'delete_patient') {
+      if (patientId) {
+        await db.collection('patients').deleteOne({
+          $or: [{ id: patientId }, { _id: patientId }]
+        });
+        const metaCollection = db.collection('meta');
+        await metaCollection.updateOne(
+          { key: 'last_saved' },
+          { $set: { value: new Date().toISOString() } },
+          { upsert: true }
+        );
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    // ── ACTION 0B: Save Clinic Config (Safe, No Wipe) ──
+    if (action === 'save_config') {
+      const configCollection = db.collection('clinic_config');
+      await configCollection.updateOne(
+        { key: 'hos_config' },
+        { $set: { value: config || {} } },
+        { upsert: true }
+      );
+      return NextResponse.json({ success: true, message: 'Config saved' });
+    }
+
+    // ── ACTION 1: Initialize Import (Full Hard Reset Only) ──
     if (action === 'init_import') {
       await db.collection('patients').deleteMany({});
       await db.collection('patient_images').deleteMany({});
@@ -99,25 +126,36 @@ export async function POST(request) {
       return NextResponse.json({ success: true, message: 'Import finalized' });
     }
 
-    // ── DEFAULT: Standard Full / Partial Save ──
+    // ── DEFAULT: Standard Full / Partial Save (Safe Upsert, No Full Delete) ──
     if (data) {
       const { patients: ptList = [], ...otherFields } = data;
 
       const patientCollection = db.collection('patients');
-      await patientCollection.deleteMany({});
 
       if (ptList.length > 0) {
-        const chunkSize = 10;
-        for (let i = 0; i < ptList.length; i += chunkSize) {
-          const chunk = ptList.slice(i, i + chunkSize).map((p) => {
-            const docId = p.id || 'PT' + Date.now().toString().slice(-6) + Math.floor(Math.random() * 1000);
-            return {
-              _id: docId,
-              ...p,
-              id: docId,
-            };
-          });
-          await patientCollection.insertMany(chunk, { ordered: false });
+        const operations = ptList.map((p) => {
+          const docId = p.id || p._id || 'PT' + Date.now().toString().slice(-6) + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+          const { _id, ...cleanData } = p;
+          return {
+            updateOne: {
+              filter: { $or: [{ id: docId }, { _id: docId }] },
+              update: {
+                $set: {
+                  ...cleanData,
+                  id: docId,
+                  _id: docId,
+                }
+              },
+              upsert: true,
+            }
+          };
+        });
+
+        // Run bulkWrite in chunks to prevent packet overflow
+        const chunkSize = 50;
+        for (let i = 0; i < operations.length; i += chunkSize) {
+          const chunk = operations.slice(i, i + chunkSize);
+          await patientCollection.bulkWrite(chunk, { ordered: false });
         }
       }
 

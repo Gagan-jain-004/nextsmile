@@ -238,7 +238,7 @@ export const CLINIC_HTML = `
     <div id="page-patients" class="page">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;flex-wrap:wrap;gap:10px">
         <h1 class="page-title" style="margin:0">Patients</h1>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="copyPublicRegisterLink()" style="border:1.5px solid #cbd5e1;background:#fff;color:#1d4ed8;font-weight:600" title="Copy direct self-registration link for patient">📋 Share Form Link</button><button class="btn btn-primary" onclick="goPage('add-patient')">➕ Add Patient</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="syncPatientsFromDB(true)" style="border:1.5px solid #cbd5e1;background:#fff;color:#0f766e;font-weight:600" title="Sync latest patients from cloud">🔄 Refresh</button><button class="btn btn-ghost" onclick="copyPublicRegisterLink()" style="border:1.5px solid #cbd5e1;background:#fff;color:#1d4ed8;font-weight:600" title="Copy direct self-registration link for patient">📋 Share Form Link</button><button class="btn btn-primary" onclick="goPage('add-patient')">➕ Add Patient</button></div>
       </div>
       <p class="page-sub" id="pt-count"></p>
       <div class="search-wrap">
