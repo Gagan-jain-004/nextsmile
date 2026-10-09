@@ -45,7 +45,8 @@ export async function POST(request) {
     const { db } = await connectToDatabase();
     const patientCollection = db.collection('patients');
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const nowIso = new Date().toISOString();
+    const todayStr = nowIso.slice(0, 10);
     const docId =
       'PT' +
       Date.now().toString().slice(-6) +
@@ -63,7 +64,8 @@ export async function POST(request) {
       address: (address || '').trim(),
       complaint: (complaint || '').trim(),
       medHistory: (medHistory || '').trim(),
-      createdAt: todayStr,
+      createdAt: nowIso,
+      registeredAt: nowIso,
       registeredVia: 'self-registration',
       treatmentStatus: 'ongoing',
       records: [],

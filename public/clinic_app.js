@@ -4,10 +4,89 @@ function todayISO() { return new Date().toISOString().slice(0, 10); }
 function monthISO() { return new Date().toISOString().slice(0, 7); }
 function fmtDate(d) {
   try {
+    if (!d) return '';
+    if (typeof d === 'string' && (d.includes('T') || d.includes(' '))) {
+      return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
     return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   } catch (e) {
     return d || '';
   }
+}
+
+function getPtRegistrationDateObj(p) {
+  if (!p) return null;
+  var raw = p.registeredAt || p.createdAt;
+  if (raw) {
+    if (typeof raw === 'string') {
+      var d = (raw.includes('T') || raw.includes(' ')) ? new Date(raw) : new Date(raw + 'T00:00:00');
+      if (!isNaN(d.getTime())) return { date: d, hasTime: raw.includes('T') || raw.includes(':') };
+    } else if (typeof raw === 'number') {
+      var d = new Date(raw);
+      if (!isNaN(d.getTime())) return { date: d, hasTime: true };
+    }
+  }
+  var m = String(p.id || '').match(/PT(\d{6,})/i);
+  if (m && m[1]) {
+    var num = parseInt(m[1], 10);
+    if (num > 1500000000000) {
+      var d = new Date(num);
+      if (!isNaN(d.getTime())) return { date: d, hasTime: true };
+    }
+  }
+  return null;
+}
+
+function getPtRegistrationTime(p) {
+  if (!p) return 0;
+  var raw = p.registeredAt || p.createdAt;
+  if (raw) {
+    if (typeof raw === 'string') {
+      var d = (raw.includes('T') || raw.includes(' ')) ? new Date(raw) : new Date(raw + 'T00:00:00');
+      var t = d.getTime();
+      if (!isNaN(t) && t > 0) {
+        if (raw.length <= 10) {
+          var idDigits = String(p.id || '').replace(/\D/g, '');
+          if (idDigits.length >= 6) {
+            var subNum = parseInt(idDigits.slice(-6), 10) || 0;
+            return t + subNum;
+          }
+        }
+        return t;
+      }
+    } else if (typeof raw === 'number') {
+      return raw;
+    }
+  }
+  var idDigitsAll = String(p.id || '').replace(/\D/g, '');
+  if (idDigitsAll) {
+    var parsed = parseInt(idDigitsAll, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 0;
+}
+
+function fmtPtRegDate(p) {
+  var obj = getPtRegistrationDateObj(p);
+  if (obj) {
+    return obj.date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+  return p.createdAt ? fmtDate(p.createdAt) : '—';
+}
+
+function fmtPtRegTime(p) {
+  var obj = getPtRegistrationDateObj(p);
+  if (obj && obj.hasTime) {
+    return obj.date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  }
+  return '';
+}
+
+function fmtPtRegDateTime(p) {
+  var d = fmtPtRegDate(p);
+  var t = fmtPtRegTime(p);
+  if (d && t) return d + ' • ' + t;
+  return d || '—';
 }
 function esc(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1732,13 +1811,13 @@ function renderPatientList() {
   // ── SORT ──
   var _sort = typeof ptSort !== 'undefined' ? ptSort : 'recent';
   if (_sort === 'name')   list = list.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-  else if (_sort === 'oldest') list = list.slice().sort((a,b)=>((a.createdAt||a.id||'') < (b.createdAt||b.id||'') ? -1 : 1));
+  else if (_sort === 'oldest') list = list.slice().sort((a,b)=>(getPtRegistrationTime(a) - getPtRegistrationTime(b)) || (a.id||'').localeCompare(b.id||''));
   else if (_sort === 'dues')  list = list.slice().sort((a,b)=>{
     var dueA=(a.billing||[]).reduce((s,b)=>b.paid?s:s+Number(b.amount||0),0);
     var dueB=(b.billing||[]).reduce((s,b)=>b.paid?s:s+Number(b.amount||0),0);
     return dueB-dueA;
   });
-  else list = list.slice().sort((a,b)=>((b.createdAt||b.id||'') < (a.createdAt||a.id||'') ? -1 : 1)); // recent first
+  else list = list.slice().sort((a,b)=>(getPtRegistrationTime(b) - getPtRegistrationTime(a)) || (b.id||'').localeCompare(a.id||'')); // latest registration on top
 
   // --- then filter by search query ---
   if (q) {
@@ -1778,8 +1857,8 @@ function renderPatientList() {
 
   document.getElementById('pt-table').innerHTML = `
     <div class="table-wrap">
-      <div class="table-head" style="grid-template-columns:115px 1fr 125px 1fr 90px 80px">
-        <span>ID</span><span>Patient</span><span>Phone</span><span>Complaint</span><span>Status</span><span>Action</span>
+      <div class="table-head" style="grid-template-columns:105px 1.4fr 140px 120px 1.1fr 90px 75px">
+        <span>ID</span><span>Patient</span><span>Registered</span><span>Phone</span><span>Complaint</span><span>Status</span><span>Action</span>
       </div>
       ${list.length===0
         ? `<div class="empty"><span class="empty-icon">🔍</span>
@@ -1787,7 +1866,7 @@ function renderPatientList() {
              <div class="empty-sub">${q ? 'Try a different name, phone number, or Patient ID' : 'Add your first patient to get started'}</div>
            </div>`
         : list.slice(0,((_ptListPage||1)*(_ptPageSize||30))||list.length).map(p=>`
-          <div class="table-row row-clickable" style="grid-template-columns:115px 1fr 125px 1fr 90px 80px">
+          <div class="table-row row-clickable" style="grid-template-columns:105px 1.4fr 140px 120px 1.1fr 90px 75px">
             <span onclick="openPatient('${p.id}')" class="badge badge-blue"
               style="font-family:monospace;font-size:11px">${hlText(p.id, q)}</span>
             <div onclick="openPatient('${p.id}')" style="display:flex;align-items:center;gap:9px">
@@ -1796,8 +1875,12 @@ function renderPatientList() {
                 <div style="font-weight:600;font-size:13.5px">${hlText(p.name, q)}
                   ${p.type==='ortho'?'<span class="badge badge-ortho" style="font-size:9px;vertical-align:middle">Ortho</span>':''}${(typeof ptLab_getPatientBadge==='function'?ptLab_getPatientBadge(p):'')}${(function(){var hv=(p.treatmentPlan||[]).filter(function(i){return i.status==='planned';}).reduce(function(s,i){return s+Number(i.estimatedCost||0);},0);return hv>=5000?'<span style="font-size:9px;vertical-align:middle;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;padding:1px 6px;font-weight:700">🔥 HIGH VALUE</span>':'';})()} 
 ${(p.noShowCount>=2)?'<span style="font-size:9px;vertical-align:middle;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;padding:1px 6px;font-weight:700">⚠ '+p.noShowCount+' no-shows</span>':''}                </div>
-                <div style="font-size:11px;color:#64748b">${p.dob ? calcPreciseAge(p.dob) || (p.age+'y') : (p.age ? p.age+'y' : '')} • ${p.gender}${p.dob?' • '+fmtDob(p.dob):''} • <span style="color:${getLastVisitDate(p)?'#059669':'#94a3b8'}">🕐 ${getLastVisitDate(p)?fmtDate(getLastVisitDate(p)):'No visits'}</span></div>
+                <div style="font-size:11px;color:#64748b">${p.dob ? calcPreciseAge(p.dob) || (p.age+'y') : (p.age ? p.age+'y' : '')} • ${p.gender}${p.dob?' • '+fmtDob(p.dob):''} • <span style="color:#0284c7;font-weight:600">📅 ${fmtPtRegDateTime(p)}</span> • <span style="color:${getLastVisitDate(p)?'#059669':'#94a3b8'}">🕐 ${getLastVisitDate(p)?fmtDate(getLastVisitDate(p)):'No visits'}</span></div>
               </div>
+            </div>
+            <div onclick="openPatient('${p.id}')" style="display:flex;flex-direction:column;justify-content:center" title="Registered: ${fmtPtRegDateTime(p)}">
+              <span style="font-size:12px;font-weight:700;color:#1e293b;white-space:nowrap">📅 ${fmtPtRegDate(p)}</span>
+              ${fmtPtRegTime(p)?`<span style="font-size:11px;color:#64748b;margin-top:2px;font-weight:500;white-space:nowrap">🕒 ${fmtPtRegTime(p)}</span>`:''}
             </div>
             <span onclick="openPatient('${p.id}')" style="font-size:13px;color:#475569">${hlText(p.phone, q)}</span>
             <span onclick="openPatient('${p.id}')" style="font-size:12px;color:#64748b">${esc((p.complaint||'').slice(0,28))}</span>${visitFreq_badge(p)}${(p.tags&&p.tags.length?'<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px">'+tags_renderChips(p.tags)+'</div>':'')}${(function(){var recs=p.records||[];if(!recs.length)return '';var last=recs.slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});var d=last[0].date;var daysAgo=Math.floor((new Date()-new Date(d+'T00:00:00'))/86400000);var col=daysAgo<=7?'#059669':daysAgo<=30?'#d97706':'#dc2626';return '<span style="font-size:10px;color:'+col+';margin-left:6px;font-weight:600">'+(daysAgo===0?'today':daysAgo===1?'yesterday':daysAgo+'d ago')+'</span>';})()}
@@ -1870,7 +1953,8 @@ function addPatient() {
     address:    document.getElementById('f-address').value,
     complaint:  document.getElementById('f-complaint').value,
     medHistory: document.getElementById('f-medhist').value,
-    createdAt:  todayISO(),
+    createdAt:  new Date().toISOString(),
+    registeredAt: new Date().toISOString(),
     treatmentStatus: 'ongoing',
     records:[], images:[], prescriptions:[], billing:[],
     orthoDetails: type==='ortho'
@@ -2089,7 +2173,7 @@ function renderPatientHeader() {
             <span style="font-size:12.5px;color:#64748b">${p.age}y • ${p.gender}</span>
             <span style="font-size:12.5px;color:#64748b">${p.phone}</span>
             ${p.dob?`<span style="font-size:12.5px;color:#64748b">DOB: ${fmtDob(p.dob)}</span>`:''}
-            ${p.createdAt?`<span style="font-size:11px;color:#94a3b8;margin-left:6px">Reg: ${fmtDate(p.createdAt)}</span>`:''}
+            ${fmtPtRegDateTime(p)?`<span style="font-size:12px;color:#334155;background:#f1f5f9;padding:2px 8px;border-radius:6px;font-weight:600;margin-left:4px">📅 Reg: ${fmtPtRegDateTime(p)}</span>`:''}
             ${visitFreq_badge(p)}
           </div>
         </div>

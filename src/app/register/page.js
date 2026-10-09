@@ -354,9 +354,21 @@ export default function RegisterPage() {
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#64748b' }}>Date:</span>
-                  <span style={{ color: '#1e293b' }}>
-                    {successData.patient.createdAt || new Date().toLocaleDateString('en-IN')}
+                  <span style={{ color: '#64748b' }}>Registered:</span>
+                  <span style={{ color: '#1e293b', fontWeight: '600' }}>
+                    {successData.patient.createdAt
+                      ? new Date(successData.patient.createdAt).toLocaleDateString('en-IN', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                        }) +
+                        ' • ' +
+                        new Date(successData.patient.createdAt).toLocaleTimeString('en-IN', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: true,
+                        })
+                      : new Date().toLocaleDateString('en-IN')}
                   </span>
                 </div>
               </div>
