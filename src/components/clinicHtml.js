@@ -149,16 +149,12 @@ export const CLINIC_HTML = `
       <div class="nav-item" id="nav-dues"          onclick="goPage('dues')">⚠️ Outstanding Dues</div>
       <div class="nav-item" id="nav-pending-tx" onclick="goPage('pending-tx')">📋 Pending Tx</div>
       <div class="nav-item" id="nav-lab"          onclick="goPage('lab')">🏭 Lab Work</div>
-      <div class="nav-item" id="nav-inventory"    onclick="goPage('inventory')">📦 Inventory</div>
-      <div class="nav-item" id="nav-queue"        onclick="goPage('queue')">🎫 Patient Queue</div>
       <div class="nav-item" id="nav-consent"      onclick="goPage('consent')">📋 Consent Forms</div>
       </div>
       <hr class="nav-sep"/>
       <div class="nav-section">Finance</div>
       <div class="nav-section-items" id="nav-sect-finance" data-section="finance">
       <div class="nav-item" id="nav-staff" onclick="goPage('staff')">👤 Staff Log</div>
-      <div class="nav-item" id="nav-steril" onclick="goPage('steril')">&#127950; Sterilization</div>
-      <div class="nav-item" id="nav-packages" onclick="goPage('packages')">📦 Packages</div>
       <div class="nav-item" id="nav-education" onclick="goPage('education')">📚 Patient Education</div>
       <div class="nav-item" id="nav-expenses"     onclick="goPage('expenses')">💸 Expenses</div>
       <div class="nav-item" id="nav-wa-templates" onclick="goPage('wa-templates')">📲 WA Templates</div>
