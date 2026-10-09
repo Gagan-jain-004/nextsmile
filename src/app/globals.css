@@ -631,12 +631,12 @@ body.dark-mode .group-tab-btn.active {
   #page-patient-detail .card{
     max-width:100%;
   }
-  /* Patient list — show more columns */
-  .table-row{
-    grid-template-columns:120px 1fr 140px 1fr 100px 90px !important;
+  /* Patient list — 7 columns (ID, Patient, Registered, Phone, Complaint, Status [Visits], Action [Ongoing/Pending/Completed]) */
+  #pt-table .table-row{
+    grid-template-columns:100px 1.4fr 135px 120px 1.2fr 130px 125px !important;
   }
-  .table-head{
-    grid-template-columns:120px 1fr 140px 1fr 100px 90px !important;
+  #pt-table .table-head{
+    grid-template-columns:100px 1.4fr 135px 120px 1.2fr 130px 125px !important;
   }
   /* Overlay when sidebar open — disable on desktop */
   #sidebar-overlay{

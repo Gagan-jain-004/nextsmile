@@ -356,19 +356,24 @@ export default function RegisterPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#64748b' }}>Registered:</span>
                   <span style={{ color: '#1e293b', fontWeight: '600' }}>
-                    {successData.patient.createdAt
-                      ? new Date(successData.patient.createdAt).toLocaleDateString('en-IN', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                        }) +
-                        ' • ' +
-                        new Date(successData.patient.createdAt).toLocaleTimeString('en-IN', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          hour12: true,
-                        })
-                      : new Date().toLocaleDateString('en-IN')}
+                    {(() => {
+                      const val = successData?.patient?.createdAt || successData?.patient?.registeredAt;
+                      if (!val) return new Date().toLocaleDateString('en-IN');
+                      try {
+                        const d = (typeof val === 'string' && (val.includes('T') || val.includes(' ')))
+                          ? new Date(val)
+                          : new Date(val + 'T00:00:00');
+                        if (isNaN(d.getTime())) return String(val);
+                        const dStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                        if (typeof val === 'string' && (val.includes('T') || val.includes(':'))) {
+                          const tStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+                          return dStr + ' • ' + tStr;
+                        }
+                        return dStr;
+                      } catch (e) {
+                        return String(val || '');
+                      }
+                    })()}
                   </span>
                 </div>
               </div>

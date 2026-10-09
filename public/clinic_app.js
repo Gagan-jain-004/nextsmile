@@ -6,88 +6,112 @@ function fmtDate(d) {
   try {
     if (!d) return '';
     if (typeof d === 'string' && (d.includes('T') || d.includes(' '))) {
-      return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+      var parsed = new Date(d);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+      }
     }
-    return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    var dt = new Date(d + 'T00:00:00');
+    if (!isNaN(dt.getTime())) {
+      return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    return String(d || '');
   } catch (e) {
-    return d || '';
+    return String(d || '');
   }
 }
 
 function getPtRegistrationDateObj(p) {
   if (!p) return null;
-  var raw = p.registeredAt || p.createdAt;
-  if (raw) {
-    if (typeof raw === 'string') {
-      var d = (raw.includes('T') || raw.includes(' ')) ? new Date(raw) : new Date(raw + 'T00:00:00');
-      if (!isNaN(d.getTime())) return { date: d, hasTime: raw.includes('T') || raw.includes(':') };
-    } else if (typeof raw === 'number') {
-      var d = new Date(raw);
-      if (!isNaN(d.getTime())) return { date: d, hasTime: true };
+  try {
+    var raw = p.registeredAt || p.createdAt;
+    if (raw) {
+      if (typeof raw === 'string') {
+        var d = (raw.includes('T') || raw.includes(' ')) ? new Date(raw) : new Date(raw + 'T00:00:00');
+        if (!isNaN(d.getTime())) return { date: d, hasTime: raw.includes('T') || raw.includes(':') };
+      } else if (typeof raw === 'number') {
+        var d = new Date(raw);
+        if (!isNaN(d.getTime())) return { date: d, hasTime: true };
+      }
     }
-  }
-  var m = String(p.id || '').match(/PT(\d{6,})/i);
-  if (m && m[1]) {
-    var num = parseInt(m[1], 10);
-    if (num > 1500000000000) {
-      var d = new Date(num);
-      if (!isNaN(d.getTime())) return { date: d, hasTime: true };
+    var m = String(p.id || '').match(/PT(\d{6,})/i);
+    if (m && m[1]) {
+      var num = parseInt(m[1], 10);
+      if (num > 1500000000000) {
+        var d = new Date(num);
+        if (!isNaN(d.getTime())) return { date: d, hasTime: true };
+      }
     }
-  }
+  } catch(e){}
   return null;
 }
 
 function getPtRegistrationTime(p) {
   if (!p) return 0;
-  var raw = p.registeredAt || p.createdAt;
-  if (raw) {
-    if (typeof raw === 'string') {
-      var d = (raw.includes('T') || raw.includes(' ')) ? new Date(raw) : new Date(raw + 'T00:00:00');
-      var t = d.getTime();
-      if (!isNaN(t) && t > 0) {
-        if (raw.length <= 10) {
-          var idDigits = String(p.id || '').replace(/\D/g, '');
-          if (idDigits.length >= 6) {
-            var subNum = parseInt(idDigits.slice(-6), 10) || 0;
-            return t + subNum;
+  try {
+    var raw = p.registeredAt || p.createdAt;
+    if (raw) {
+      if (typeof raw === 'string') {
+        var d = (raw.includes('T') || raw.includes(' ')) ? new Date(raw) : new Date(raw + 'T00:00:00');
+        var t = d.getTime();
+        if (!isNaN(t) && t > 0) {
+          if (raw.length <= 10) {
+            var idDigits = String(p.id || '').replace(/\D/g, '');
+            if (idDigits.length >= 6) {
+              var subNum = parseInt(idDigits.slice(-6), 10) || 0;
+              return t + subNum;
+            }
           }
+          return t;
         }
-        return t;
+      } else if (typeof raw === 'number') {
+        return raw;
       }
-    } else if (typeof raw === 'number') {
-      return raw;
     }
-  }
-  var idDigitsAll = String(p.id || '').replace(/\D/g, '');
-  if (idDigitsAll) {
-    var parsed = parseInt(idDigitsAll, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
-  }
+    var idDigitsAll = String(p.id || '').replace(/\D/g, '');
+    if (idDigitsAll) {
+      var parsed = parseInt(idDigitsAll, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+  } catch(e){}
   return 0;
 }
 
 function fmtPtRegDate(p) {
-  var obj = getPtRegistrationDateObj(p);
-  if (obj) {
-    return obj.date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  try {
+    var obj = getPtRegistrationDateObj(p);
+    if (obj && obj.date && !isNaN(obj.date.getTime())) {
+      return obj.date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    return p.createdAt ? fmtDate(p.createdAt) : '—';
+  } catch(e) {
+    return p.createdAt || '—';
   }
-  return p.createdAt ? fmtDate(p.createdAt) : '—';
 }
 
 function fmtPtRegTime(p) {
-  var obj = getPtRegistrationDateObj(p);
-  if (obj && obj.hasTime) {
-    return obj.date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  try {
+    var obj = getPtRegistrationDateObj(p);
+    if (obj && obj.hasTime && obj.date && !isNaN(obj.date.getTime())) {
+      return obj.date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+    return '';
+  } catch(e) {
+    return '';
   }
-  return '';
 }
 
 function fmtPtRegDateTime(p) {
-  var d = fmtPtRegDate(p);
-  var t = fmtPtRegTime(p);
-  if (d && t) return d + ' • ' + t;
-  return d || '—';
+  try {
+    var d = fmtPtRegDate(p);
+    var t = fmtPtRegTime(p);
+    if (d && t) return d + ' • ' + t;
+    return d || '—';
+  } catch(e) {
+    return p.createdAt || '—';
+  }
 }
+
 function esc(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -511,7 +535,19 @@ var genId     = () => 'PT' + Date.now().toString().slice(-6) + Math.floor(Math.r
 var genApptId = () => 'AP' + Date.now().toString().slice(-6) + Math.floor(Math.random()*100);
 var todayISO  = () => new Date().toISOString().slice(0,10);
 var monthISO  = () => new Date().toISOString().slice(0,7);
-var fmtDate   = d => { try{ return new Date(d+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); }catch(e){return d||'';} };
+var fmtDate = d => {
+  try {
+    if (!d) return '';
+    var str = String(d);
+    var dt = (str.includes('T') || str.includes(' ')) ? new Date(str) : new Date(str.length === 10 ? str + 'T00:00:00' : str);
+    if (!isNaN(dt.getTime())) {
+      return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    return str;
+  } catch(e) {
+    return d || '';
+  }
+};
 var esc       = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 var fmtMoney  = n => 'Rs.' + Number(n||0).toLocaleString('en-IN');
 var avatarColor = name => `hsl(${(name||'A').charCodeAt(0)*7%360},55%,52%)`;
@@ -1857,8 +1893,8 @@ function renderPatientList() {
 
   document.getElementById('pt-table').innerHTML = `
     <div class="table-wrap">
-      <div class="table-head" style="grid-template-columns:105px 1.4fr 140px 120px 1.1fr 90px 75px">
-        <span>ID</span><span>Patient</span><span>Registered</span><span>Phone</span><span>Complaint</span><span>Status</span><span>Action</span>
+      <div class="table-head" style="grid-template-columns:100px 1.4fr 135px 120px 1.2fr 130px 125px">
+        <span>ID</span><span>Patient</span><span>Registered</span><span>Phone</span><span>Complaint</span><span>Status</span><span style="text-align:center">Action</span>
       </div>
       ${list.length===0
         ? `<div class="empty"><span class="empty-icon">🔍</span>
@@ -1866,37 +1902,78 @@ function renderPatientList() {
              <div class="empty-sub">${q ? 'Try a different name, phone number, or Patient ID' : 'Add your first patient to get started'}</div>
            </div>`
         : list.slice(0,((_ptListPage||1)*(_ptPageSize||30))||list.length).map(p=>`
-          <div class="table-row row-clickable" style="grid-template-columns:105px 1.4fr 140px 120px 1.1fr 90px 75px">
-            <span onclick="openPatient('${p.id}')" class="badge badge-blue"
-              style="font-family:monospace;font-size:11px">${hlText(p.id, q)}</span>
-            <div onclick="openPatient('${p.id}')" style="display:flex;align-items:center;gap:9px">
-              <div class="avatar" style="width:33px;height:33px;background:${avatarColor(p.name)};font-size:12px">${p.name[0]}</div>
-              <div>
-                <div style="font-weight:600;font-size:13.5px">${hlText(p.name, q)}
-                  ${p.type==='ortho'?'<span class="badge badge-ortho" style="font-size:9px;vertical-align:middle">Ortho</span>':''}${(typeof ptLab_getPatientBadge==='function'?ptLab_getPatientBadge(p):'')}${(function(){var hv=(p.treatmentPlan||[]).filter(function(i){return i.status==='planned';}).reduce(function(s,i){return s+Number(i.estimatedCost||0);},0);return hv>=5000?'<span style="font-size:9px;vertical-align:middle;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;padding:1px 6px;font-weight:700">🔥 HIGH VALUE</span>':'';})()} 
-${(p.noShowCount>=2)?'<span style="font-size:9px;vertical-align:middle;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;padding:1px 6px;font-weight:700">⚠ '+p.noShowCount+' no-shows</span>':''}                </div>
-                <div style="font-size:11px;color:#64748b">${p.dob ? calcPreciseAge(p.dob) || (p.age+'y') : (p.age ? p.age+'y' : '')} • ${p.gender}${p.dob?' • '+fmtDob(p.dob):''} • <span style="color:#0284c7;font-weight:600">📅 ${fmtPtRegDateTime(p)}</span> • <span style="color:${getLastVisitDate(p)?'#059669':'#94a3b8'}">🕐 ${getLastVisitDate(p)?fmtDate(getLastVisitDate(p)):'No visits'}</span></div>
+          <div class="table-row row-clickable" style="grid-template-columns:100px 1.4fr 135px 120px 1.2fr 130px 125px">
+            <!-- 1. ID & Delete button underneath -->
+            <div style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+              <span onclick="openPatient('${p.id}')" class="badge badge-blue"
+                style="font-family:monospace;font-size:11px;cursor:pointer">${hlText(p.id, q)}</span>
+              <button class="btn btn-red btn-sm" onclick="event.stopPropagation();deletePatient('${p.id}')" style="padding:2px 8px;font-size:10px;font-weight:700;border-radius:6px;line-height:1.2" title="Delete Patient">Del</button>
+            </div>
+
+            <!-- 2. Patient -->
+            <div onclick="openPatient('${p.id}')" style="display:flex;align-items:center;gap:9px;min-width:0">
+              <div class="avatar" style="width:33px;height:33px;background:${avatarColor(p.name)};font-size:12px;flex-shrink:0">${p.name[0]}</div>
+              <div style="min-width:0">
+                <div style="font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                  ${hlText(p.name, q)}
+                  ${p.type==='ortho'?'<span class="badge badge-ortho" style="font-size:9px;vertical-align:middle;margin-left:4px">Ortho</span>':''}${(typeof ptLab_getPatientBadge==='function'?ptLab_getPatientBadge(p):'')}${(function(){var hv=(p.treatmentPlan||[]).filter(function(i){return i.status==='planned';}).reduce(function(s,i){return s+Number(i.estimatedCost||0);},0);return hv>=5000?'<span style="font-size:9px;vertical-align:middle;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;padding:1px 6px;font-weight:700;margin-left:4px">🔥 HIGH VALUE</span>':'';})()} 
+${(p.noShowCount>=2)?'<span style="font-size:9px;vertical-align:middle;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;padding:1px 6px;font-weight:700;margin-left:4px">⚠ '+p.noShowCount+' no-shows</span>':''}                </div>
+                <div style="font-size:11px;color:#64748b;margin-top:1px">
+                  ${p.dob ? calcPreciseAge(p.dob) || (p.age+'y') : (p.age ? p.age+'y' : '')} • ${p.gender}${p.dob?' • '+fmtDob(p.dob):''}
+                </div>
               </div>
             </div>
+
+            <!-- 3. Registered Date & Time -->
             <div onclick="openPatient('${p.id}')" style="display:flex;flex-direction:column;justify-content:center" title="Registered: ${fmtPtRegDateTime(p)}">
               <span style="font-size:12px;font-weight:700;color:#1e293b;white-space:nowrap">📅 ${fmtPtRegDate(p)}</span>
               ${fmtPtRegTime(p)?`<span style="font-size:11px;color:#64748b;margin-top:2px;font-weight:500;white-space:nowrap">🕒 ${fmtPtRegTime(p)}</span>`:''}
             </div>
-            <span onclick="openPatient('${p.id}')" style="font-size:13px;color:#475569">${hlText(p.phone, q)}</span>
-            <span onclick="openPatient('${p.id}')" style="font-size:12px;color:#64748b">${esc((p.complaint||'').slice(0,28))}</span>${visitFreq_badge(p)}${(p.tags&&p.tags.length?'<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px">'+tags_renderChips(p.tags)+'</div>':'')}${(function(){var recs=p.records||[];if(!recs.length)return '';var last=recs.slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});var d=last[0].date;var daysAgo=Math.floor((new Date()-new Date(d+'T00:00:00'))/86400000);var col=daysAgo<=7?'#059669':daysAgo<=30?'#d97706':'#dc2626';return '<span style="font-size:10px;color:'+col+';margin-left:6px;font-weight:600">'+(daysAgo===0?'today':daysAgo===1?'yesterday':daysAgo+'d ago')+'</span>';})()}
-            <select
-              class="pt-status-select"
-              data-status="${p.treatmentStatus||'ongoing'}"
-              onchange="setPatientStatus('${p.id}',this.value)"
-              onclick="event.stopPropagation()"
-              style="border:none;border-radius:20px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;outline:none;
-                background:${p.treatmentStatus==='completed'?'#ecfdf5':p.treatmentStatus==='pending'?'#fffbeb':'#eff6ff'};
-                color:${p.treatmentStatus==='completed'?'#059669':p.treatmentStatus==='pending'?'#d97706':'#1d4ed8'}">
-              <option value="ongoing"   ${(p.treatmentStatus||'ongoing')==='ongoing'   ?'selected':''}>🔄 Ongoing</option>
-              <option value="pending"   ${(p.treatmentStatus||'ongoing')==='pending'   ?'selected':''}>⏳ Pending</option>
-              <option value="completed" ${(p.treatmentStatus||'ongoing')==='completed' ?'selected':''}>✅ Completed</option>
-            </select>
-            <button class="btn btn-red btn-sm" onclick="event.stopPropagation();deletePatient('${p.id}')">Del</button>
+
+            <!-- 4. Phone -->
+            <span onclick="openPatient('${p.id}')" style="font-size:13px;color:#334155;font-weight:500;white-space:nowrap">${hlText(p.phone, q)}</span>
+
+            <!-- 5. Complaint -->
+            <div onclick="openPatient('${p.id}')" style="font-size:12px;color:#64748b;min-width:0">
+              <span style="font-weight:500;color:#334155">${esc((p.complaint||'').slice(0,35)) || '<span style="color:#cbd5e1">—</span>'}</span>
+              ${(p.tags&&p.tags.length?'<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px">'+tags_renderChips(p.tags)+'</div>':'')}
+            </div>
+
+            <!-- 6. Status (Visit Details - Clean single view) -->
+            <div onclick="openPatient('${p.id}')" style="font-size:12px;color:#64748b;display:flex;flex-direction:column;gap:3px;min-width:0">
+              ${getLastVisitDate(p)
+                ? `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+                    <span style="font-size:11px;font-weight:600;color:#059669">🕐 ${fmtDate(getLastVisitDate(p))}</span>
+                    ${(function(){
+                      var recs=p.records||[];
+                      if(!recs.length)return '';
+                      var last=recs.slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
+                      var d=last[0].date;
+                      var daysAgo=Math.floor((new Date()-new Date(d+'T00:00:00'))/86400000);
+                      var col=daysAgo<=7?'#059669':daysAgo<=30?'#d97706':'#dc2626';
+                      return '<span style="font-size:9.5px;color:'+col+';background:'+(col==='#059669'?'#ecfdf5':col==='#d97706'?'#fffbeb':'#fef2f2')+';padding:1px 5px;border-radius:4px;font-weight:700">'+(daysAgo===0?'today':daysAgo===1?'yesterday':daysAgo+'d ago')+'</span>';
+                    })()}
+                  </div>
+                  <div>${visitFreq_badge(p)}</div>`
+                : `<span style="font-size:11px;font-weight:600;color:#94a3b8">⚪ Never visited</span>`
+              }
+            </div>
+
+            <!-- 7. Action (Ongoing / Pending / Completed Status Dropdown) -->
+            <div style="display:flex;align-items:center;justify-content:center">
+              <select
+                class="pt-status-select"
+                data-status="${p.treatmentStatus||'ongoing'}"
+                onchange="setPatientStatus('${p.id}',this.value)"
+                onclick="event.stopPropagation()"
+                style="border:none;border-radius:20px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;outline:none;width:100%;max-width:125px;
+                  background:${p.treatmentStatus==='completed'?'#ecfdf5':p.treatmentStatus==='pending'?'#fffbeb':'#eff6ff'};
+                  color:${p.treatmentStatus==='completed'?'#059669':p.treatmentStatus==='pending'?'#d97706':'#1d4ed8'}">
+                <option value="ongoing"   ${(p.treatmentStatus||'ongoing')==='ongoing'   ?'selected':''}>🔄 Ongoing</option>
+                <option value="pending"   ${(p.treatmentStatus||'ongoing')==='pending'   ?'selected':''}>⏳ Pending</option>
+                <option value="completed" ${(p.treatmentStatus||'ongoing')==='completed' ?'selected':''}>✅ Completed</option>
+              </select>
+            </div>
           </div>`).join('')}
     ${ptList_renderCount(Math.min(list.length, _ptListPage*_ptPageSize), list.length)}</div>`;
 }
@@ -13074,35 +13151,58 @@ var recall_activeFilter = 'overdue';
 var RECALL_INTERVAL_MONTHS = 6; // standard 6-month recall
 
 function recall_getLastVisit(p) {
-  const records  = (p.records||[]).map(r=>r.date).filter(Boolean);
-  const billing  = (p.billing||[]).map(b=>b.date).filter(Boolean);
-  const appts    = (DATA.appointments||[]).filter(a=>a.patientId===p.id).map(a=>a.date).filter(Boolean);
-  const all      = [...records,...billing,...appts].sort();
-  return all.length ? all[all.length-1] : (p.createdAt||null);
+  try {
+    const records  = (p.records||[]).map(r=>(r.date||'').slice(0,10)).filter(Boolean);
+    const billing  = (p.billing||[]).map(b=>(b.date||'').slice(0,10)).filter(Boolean);
+    const appts    = (DATA.appointments||[]).filter(a=>a.patientId===p.id).map(a=>(a.date||'').slice(0,10)).filter(Boolean);
+    const all      = [...records,...billing,...appts].sort();
+    return all.length ? all[all.length-1] : ((p.createdAt||'').slice(0,10) || null);
+  } catch(e) {
+    return (p.createdAt||'').slice(0,10) || null;
+  }
 }
 
 function recall_getDueDate(lastVisit) {
   if (!lastVisit) return null;
-  const d = new Date(lastVisit+'T00:00:00');
-  d.setMonth(d.getMonth() + RECALL_INTERVAL_MONTHS);
-  return d.toISOString().slice(0,10);
+  try {
+    const raw = typeof lastVisit === 'string' ? (lastVisit.includes('T') ? lastVisit.slice(0,10) : lastVisit) : '';
+    if (!raw) return null;
+    const d = new Date(raw + 'T00:00:00');
+    if (isNaN(d.getTime())) return null;
+    d.setMonth(d.getMonth() + RECALL_INTERVAL_MONTHS);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString().slice(0,10);
+  } catch(e) {
+    return null;
+  }
 }
 
 function recall_getStatus(p) {
-  const last = recall_getLastVisit(p);
-  const due  = recall_getDueDate(last);
-  if (!due) return 'unknown';
-  const today    = todayISO();
-  const thisMonthEnd = today.slice(0,7) + '-' + new Date(new Date(today).getFullYear(), new Date(today).getMonth()+1, 0).getDate().toString().padStart(2,'0');
-  if (due < today)          return 'overdue';
-  if (due <= thisMonthEnd)  return 'due';
-  return 'upcoming';
+  try {
+    const last = recall_getLastVisit(p);
+    const due  = recall_getDueDate(last);
+    if (!due) return 'unknown';
+    const today    = todayISO();
+    const thisMonthEnd = today.slice(0,7) + '-' + new Date(new Date(today).getFullYear(), new Date(today).getMonth()+1, 0).getDate().toString().padStart(2,'0');
+    if (due < today)          return 'overdue';
+    if (due <= thisMonthEnd)  return 'due';
+    return 'upcoming';
+  } catch(e) {
+    return 'unknown';
+  }
 }
 
 function recall_daysDiff(dateStr) {
-  const a = new Date(todayISO()+'T00:00:00');
-  const b = new Date(dateStr+'T00:00:00');
-  return Math.round((b-a)/(1000*60*60*24));
+  try {
+    if (!dateStr) return 0;
+    const raw = typeof dateStr === 'string' ? (dateStr.includes('T') ? dateStr.slice(0,10) : dateStr) : '';
+    const a = new Date(todayISO()+'T00:00:00');
+    const b = new Date(raw+'T00:00:00');
+    if (isNaN(b.getTime())) return 0;
+    return Math.round((b-a)/(1000*60*60*24));
+  } catch(e) {
+    return 0;
+  }
 }
 
 function recall_render() {
@@ -21868,9 +21968,9 @@ function visitFreq_calc(pt) {
   var total = recs.length + appts.length;
   if (!total) return { label:'Never visited', color:'#94a3b8', badge:'⚪', daysAgo:null };
 
-  var allDates = recs.map(function(r){return r.date;}).concat(appts.map(function(a){return a.date;}));
+  var allDates = recs.map(function(r){return (r.date||'').slice(0,10);}).concat(appts.map(function(a){return (a.date||'').slice(0,10);})).filter(Boolean);
   allDates.sort();
-  var lastDate = allDates[allDates.length-1];
+  var lastDate = (allDates[allDates.length-1] || '').slice(0, 10);
   var daysAgo  = Math.floor((new Date() - new Date(lastDate+'T00:00:00')) / 86400000);
 
   var category, color, badge;
