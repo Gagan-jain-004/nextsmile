@@ -2630,6 +2630,7 @@ function renderPatientHeader() {
   const p = activePt;
   const total = (p.billing||[]).reduce(function(s,b){ return s+Number(b.totalAmount||b.amount||0); },0);
   const paid  = (p.billing||[]).reduce(function(s,b){ return s+Number(b.paidAmount||(b.paid?(b.totalAmount||b.amount||0):0)); },0);
+  const due   = Math.max(0, total - paid);
   var headerEl = document.getElementById('pt-detail-header');
   if (!headerEl) return;
   headerEl.innerHTML = `
