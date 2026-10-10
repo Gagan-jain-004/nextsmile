@@ -203,31 +203,9 @@ export const CLINIC_HTML = `
       <div style="width:38px"></div>
     </div>
 
-    <!-- ═══ DASHBOARD ═══ -->
+    <!-- ═══ DASHBOARD 3.0 ═══ -->
     <div id="page-dashboard" class="page active">
-      <h1 class="page-title" id="dash-greeting">Good Morning, Doctor 👋</h1>
-      <p class="page-sub" id="dash-date"></p>
-      <div id="dash-alerts"></div>
-      <div id="dash-quick-bar"></div><div id="daily-collection-strip" style="background:linear-gradient(135deg,#0f172a,#1e3a5f);border-radius:14px;padding:14px 16px;margin-bottom:10px;color:#fff"></div>
-      <div id="morning-brief" style="margin-bottom:10px"></div>
-      <div id="action-centre" style="margin-bottom:14px"></div>
-      <div class="stats-grid" id="dash-stats"></div>
-        <div id="forecast-widget" style="margin-top:14px"></div>
-        <div id="stock-alert-widget"></div>
-        <div id="goal-widget" style="margin-top:8px"></div>
-        <div id="quick-notes-widget" style="margin-top:8px"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px" class="two-col" id="dash-cols"></div>
-      <div class="card" style="margin-top:20px;padding:20px">
-        <div class="sec-title">Quick Actions</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="goPage('add-patient')">➕ New Patient</button>
-          <button class="btn btn-ghost" onclick="goPage('patients')">👥 All Patients</button>
-          <button class="btn" style="background:#f5f3ff;color:#7c3aed" onclick="goPage('ortho')">🦷 Ortho Patients</button>
-          <button class="btn btn-teal" onclick="goPage('appointments')">📅 Appointments</button>
-          <button class="btn btn-ghost" onclick="goPage('expenses')">💸 Log Expense</button>
-          <button class="btn btn-ghost" onclick="goPage('billing')">💰 Billing</button>
-        </div>
-      </div>
+      <div id="dash-root"></div>
     </div>
 
     <!-- ═══ PATIENTS LIST ═══ -->
