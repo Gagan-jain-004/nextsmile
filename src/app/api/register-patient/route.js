@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/db';
+import { syncPatientToGoogleContacts } from '@/lib/googleContacts';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,6 +96,11 @@ export async function POST(request) {
       { $set: { value: new Date().toISOString() } },
       { upsert: true }
     );
+
+    // Completely non-blocking Google Contacts sync (will not delay or fail registration)
+    syncPatientToGoogleContacts(newPatient).catch((syncErr) => {
+      console.warn('[Google Contacts] Background sync error:', syncErr?.message);
+    });
 
     return NextResponse.json({
       success: true,
