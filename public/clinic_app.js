@@ -455,7 +455,8 @@ function showSavedToast(text = '💾 Saved') {
 async function loadDataFromDB() {
   const token = localStorage.getItem('hos_session_token');
   if (!token) {
-    document.getElementById('pin-screen').classList.add('show');
+    var pinEl = document.getElementById('pin-screen');
+    if (pinEl) pinEl.classList.add('show');
     return DATA;
   }
 
@@ -2234,8 +2235,9 @@ function renderPatientHeader() {
   const p = activePt;
   const total = (p.billing||[]).reduce(function(s,b){ return s+Number(b.totalAmount||b.amount||0); },0);
   const paid  = (p.billing||[]).reduce(function(s,b){ return s+Number(b.paidAmount||(b.paid?(b.totalAmount||b.amount||0):0)); },0);
-  const due   = Math.max(0,total-paid);
-  document.getElementById('pt-detail-header').innerHTML = `
+  var headerEl = document.getElementById('pt-detail-header');
+  if (!headerEl) return;
+  headerEl.innerHTML = `
     <div class="card card-body" style="padding:20px 22px">
       <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">
         <div class="avatar" style="width:54px;height:54px;background:linear-gradient(135deg,#dc2626,#16a34a);font-size:21px">${p.name[0]}</div>
@@ -2322,206 +2324,1632 @@ function switchTab(tab) {
   }[tab]||function(){})();
 }
 
-/* ── RECORDS TAB ── */
-function renderRecordsTab() {
-  var p=activePt; var recs=p.records||[];
-  var tl=p.timeLogs||[];
-  var billingEvents=(p.billing||[]).map(function(b){return{
-    _isBilling:true,id:b.id,date:b.date||'',
-    diagnosis:(b.paid?'💳 Paid':'⏳ Pending')+': '+(b.item||'Treatment'),
-    treatment:'₹'+Number(b.amount).toLocaleString('en-IN')+(b.paid?' ✓ Received':''),
-    notes:b.note||'',duration:0,paid:b.paid
-  };});
-  var allEvents=recs.concat(billingEvents).sort(function(a,b){
-    return (b.date||'').localeCompare(a.date||'');
-  });
-  var fmtDur=function(s){if(!s||s===0)return null;return s>=3600?Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m':s>=60?Math.floor(s/60)+'m '+(s%60)+'s':s+'s';};
-  var tot=recs.reduce(function(s,r){return s+(r.duration||0);},0)+tl.reduce(function(s,t){return s+(t.duration||0);},0);
-  var d=document.getElementById('tab-content-records');
-  if(!d)return;
+/* ══════════════════════════════════════════════════════════════════
+   INTEGRATED CLINICAL WORKFLOW ENGINE (cw_ MODULE)
+   Comprehensive clinical examination, dynamic procedure-specific forms,
+   treatment planning, duplicate-proof finance, tooth chart sync,
+   linked appointments, and audit trail.
+   ══════════════════════════════════════════════════════════════════ */
 
-  var h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
-  h+='<div class="sec-title" style="margin:0">Treatment Timeline</div>';
-  h+='<div style="display:flex;gap:8px;align-items:center">';
-  if(tot>0) h+='<span style="font-size:11px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:4px 10px;border-radius:8px">&#9201; '+fmtDur(tot)+' total</span>';
-  h+='<button class="btn btn-primary btn-sm" onclick="showAddRecord()">+ Add Visit</button></div></div>';
+var cw_PROC_CATEGORIES = [
+  { id:'Restorative', label:'🦷 Composite / Restorative', icon:'✨' },
+  { id:'Endodontic',  label:'🔬 Root Canal (RCT)',        icon:'🦷' },
+  { id:'VitalPulp',   label:'🩸 Deep Caries / DPC / IPT',  icon:'🛡️' },
+  { id:'Surgical',    label:'💉 Extraction / Surgical',   icon:'🩹' },
+  { id:'Preventive',  label:'🧼 Scaling & Polishing',     icon:'🪥' },
+  { id:'Prosthetic',  label:'👑 Crown / Bridge / Lab',    icon:'💎' },
+  { id:'Orthodontic', label:'📐 Orthodontic Visit',       icon:'📏' },
+  { id:'Aligner',     label:'✨ Aligner Review Visit',    icon:'🌟' },
+  { id:'Custom',      label:'📋 Custom Procedure',        icon:'📝' },
+];
 
-  h+='<div id="rec-form" style="display:none" class="alert-box alert-blue">';
-  h+='<div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:14px">New Clinical Entry</div>';
-  h+=procTrack_renderWidget();
-  h+='<div class="form-grid-2">';
-  h+='<div class="form-group"><label class="form-label">Date</label><input class="form-input" id="rec-date" type="date" value="'+todayISO()+'"/></div>';
-  h+=clinTpl_renderStrip();
-  h+='<div class="form-group">';
-  h+='<label class="form-label">Diagnosis / Complaint</label>';
-  h+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">';
-  ['Caries (Deep)','Irreversible Pulpitis','Periodontitis','Gingivitis','Pericoronitis',
-   'Sensitivity','Pain (Acute)','RCT Review','Ortho Visit','Checkup'].forEach(function(d){
-    h+='<button type="button" data-v="'+d+'" onclick="var el=document.getElementById(\'rec-diag\');if(el){el.value=this.dataset.v;smartDef_show(this.dataset.v);}" '
-      +' style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a5f;border-radius:20px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer">'+d+'</button>';
-  });
-  h+='</div>';
-  h+='<input class="form-input" id="rec-diag" placeholder="Type or tap above" '
-    +'oninput="smartDef_show(this.value);diagAC_show(this)" autocomplete="off" list="diag-combo-list"/></div>';
-  h+='<div id="smart-def-hint" style="display:none;background:#faf5ff;border:1px solid #ddd6fe;border-radius:10px;padding:10px 12px;margin-bottom:8px"></div>';
-  h+=procTimer_renderStrip();
-  h+='<div class="form-group">';
-  h+='<label class="form-label">Treatment Done / Planned</label>';
-  h+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">';
-  ['RCT (Molar)','Composite Filling','Extraction','Scaling','Crown (Zirconia)','Aligner Change',
-   'Braces Visit','Wire Change','OPG X-Ray','IOPA X-Ray'].forEach(function(t){
-    h+='<button type="button" data-tx="'+t+'" onclick="(function(el){if(el)el.value=this.dataset.tx;}).call(this,document.getElementById(\'rec-treat\'))" style="background:#f0fdf4;border:1px solid #86efac;color:#059669;border-radius:20px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer">'+t+'</button>';
-  });
-  h+='</div>';
-  h+='<input class="form-input" id="rec-treat" placeholder="Type or tap above — full list in autocomplete" list="treat-ac-list"/></div>';
-  h+='</div>';
-  h+=ohi_renderField();
-  h+=painScale_renderField();
-  h+=occ_renderStrip();
-  h+='<div class="form-group"><label class="form-label">Occlusion / Bite Findings</label><input class="form-input" id="rec-occlusion" placeholder="e.g. Bruxism suspected. Deep bite. — or use buttons above"/></div>';
-  h+='<div class="form-group"><label class="form-label">Procedure Notes</label><textarea class="form-input" id="rec-notes" rows="3" placeholder="Detailed notes..."></textarea></div>';
-  h+=rec_reDoSection();
-  h+='<div class="form-group"><label class="form-label">⏱ Duration (mins)</label>';
-  h+='<input id="rec-dur-mins" type="number" class="form-input" min="1" max="480" placeholder="e.g. 20" style="max-width:120px"/></div>';
-  h+='<div id="rec-edit-id" style="display:none"></div>';
-  h+='<div id="clinical-timers-panel" style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;padding:12px;margin-bottom:10px"></div>';
-  h+='<div style="display:flex;gap:10px"><button class="btn btn-primary btn-sm" onclick="saveRecord()">Save</button>';
-  h+='<button class="btn btn-ghost btn-sm" onclick="document.getElementById(&quot;rec-form&quot;).style.display=&quot;none&quot;">Cancel</button></div></div>';
+var cw_RCT_CANALS_MAP = {
+  // Upper
+  11:['Canal 1'], 12:['Canal 1'], 13:['Canal 1'], 14:['Buccal','Palatal'], 15:['Canal 1'], 16:['MB1','MB2','DB','Palatal'], 17:['MB','DB','Palatal'], 18:['MB','DB','Palatal'],
+  21:['Canal 1'], 22:['Canal 1'], 23:['Canal 1'], 24:['Buccal','Palatal'], 25:['Canal 1'], 26:['MB1','MB2','DB','Palatal'], 27:['MB','DB','Palatal'], 28:['MB','DB','Palatal'],
+  // Lower
+  41:['Canal 1'], 42:['Canal 1'], 43:['Canal 1'], 44:['Canal 1'], 45:['Canal 1'], 46:['Mesiobuccal','Mesiolingual','Distal'], 47:['Mesial','Distal'], 48:['Mesial','Distal'],
+  31:['Canal 1'], 32:['Canal 1'], 33:['Canal 1'], 34:['Canal 1'], 35:['Canal 1'], 36:['Mesiobuccal','Mesiolingual','Distal'], 37:['Mesial','Distal'], 38:['Mesial','Distal'],
+};
 
-  h+='<div id="recs-timeline">';
-  if(allEvents.length===0){
-    h+='<div class="empty" style="border:1px solid #e2e8f0;border-radius:14px"><span class="empty-icon">&#129463;</span><div class="empty-title">No records yet</div></div>';
-  } else {
-    allEvents.forEach(function(r,i){
-      h+='<div class="timeline-item">';
-      h+='<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">';
-      h+='<div class="tl-dot" style="background:'+(r._isBilling?(r.paid?'#059669':'#d97706'):'#1d4ed8')+';border-color:'+(r._isBilling?(r.paid?'#6ee7b7':'#fcd34d'):'#bfdbfe')+';"></div>'+(i<allEvents.length-1?'<div class="tl-line"></div>':'');
-      h+='</div><div class="tl-card">';
-      h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
-      h+='<span class="badge badge-blue">'+fmtDate(r.date)+'</span>';
-      h+='<div style="display:flex;align-items:center;gap:6px">';
-      if(r.duration>0) h+='<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:2px 8px;border-radius:6px">&#9201; '+fmtDur(r.duration)+'</span>';
-      if(r.durationMins) h+='<span style="font-size:10px;font-weight:700;color:#059669;background:#ecfdf5;padding:2px 7px;border-radius:6px">⏱ '+r.durationMins+'m</span>';
-      h+='<button class="btn btn-sm" style="background:#3b82f6;color:#fff;border:none;font-size:10px;padding:4px 8px" data-rid="'+r.id+'" onclick="rec_editLoad(this.dataset.rid)">✏️</button>';
-      h+='<button class="btn btn-red btn-icon btn-sm" onclick="deleteRecord(&quot;'+r.id+'&quot;)">x</button>';
-      if(r.diagnosis||r.treatment) h+='<button class="btn btn-sm" style="background:#0d9488;color:#fff;border:none;font-size:10px;padding:4px 8px" data-rid="'+r.id+'" onclick="(function(){var rec=(activePt.records||[]).find(function(x){return x.id===\''+r.id+'\'});if(rec)care_send(activePt.id,rec.treatment||rec.diagnosis||\'\')})()">&#128138;</button>';
-      h+='</div></div>';
-      h+='<div style="margin-bottom:7px"><span style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase">Diagnosis</span>';
-      h+='<p style="font-size:14px;font-weight:700;color:#1e293b;margin-top:2px">'+esc(r.diagnosis)+'</p></div>';
-      if(r.treatment) h+='<div style="margin-bottom:7px"><span style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase">Treatment</span><p style="font-size:13px;color:#374151;margin-top:2px">'+esc(r.treatment)+'</p></div>';
-      if(r.notes) h+='<div style="background:#f8fafc;border-left:3px solid #1d4ed8;border-radius:0 8px 8px 0;padding:9px 13px;margin-top:8px"><p style="font-size:12px;color:#475569;line-height:1.65">'+esc(r.notes)+'</p></div>';
-      if(r.occlusion) h+='<div style="font-size:11px;color:#0369a1;margin-top:5px;padding:5px 8px;background:#f0f9ff;border-radius:6px">🦷 '+esc(r.occlusion)+'</div>';
-      h+=recCard_extraBadges(r);
-      h+='</div></div>';
-    });
-  }
-  h+='</div>';
+var cw_visitState = null;
+var cw_saveLock = false;
 
-  if(tl.length>0){
-    h+='<div style="margin-top:16px;padding-top:14px;border-top:1px solid #e2e8f0">';
-    h+='<div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">&#9201; Time-Only Sessions</div>';
-    tl.slice().reverse().forEach(function(t){
-      h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f5f3ff;border-radius:10px;margin-bottom:6px;border-left:3px solid #7c3aed">';
-      h+='<div><div style="font-size:13px;font-weight:600;color:#4c1d95">'+esc(t.label)+'</div>';
-      h+='<div style="font-size:11px;color:#94a3b8">'+fmtDate(t.date)+'</div></div>';
-      h+='<span style="font-size:14px;font-weight:800;color:#7c3aed">&#9201; '+fmtDur(t.duration)+'</span></div>';
-    });
-    h+='</div>';
-  }
-
-  // Show linked lab jobs at bottom of records tab
-  var labJobs = (DATA.labJobs||[]).filter(function(j){ return j.patientId===activePt.id || j.patientName===activePt.name; });
-  if (labJobs.length) {
-    h += '<div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px">🔬 Lab Work for This Patient</div>';
-    labJobs.forEach(function(j) {
-      var statusColor = j.status==='Received'?'#059669':j.status==='Cancelled'?'#dc2626':'#d97706';
-      h += '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">';
-      h += '<div><div style="font-size:12px;font-weight:700;color:#1e293b">'+esc(j.workType||'Lab Job')+'</div>';
-      h += '<div style="font-size:11px;color:#64748b">'+esc(j.labName||'')+(j.sentDate?' &bull; Sent: '+fmtDate(j.sentDate):'')+(j.dueDate?' &bull; Due: '+fmtDate(j.dueDate):'')+'</div></div>';
-      h += '<span style="font-size:11px;font-weight:700;color:'+statusColor+'">'+esc(j.status||'Pending')+'</span>';
-      h += '</div>';
-    });
-  }
-  d.innerHTML=h;
-  /* Restore form state if user had it open */
-  setTimeout(function(){
-    recForm_restore();
-    clinTimer_render('clinical-timers-panel');
-    /* Populate diag-combo-list from COMMON_DIAG */
-    var dl = document.getElementById('diag-combo-list');
-    if (dl && typeof COMMON_DIAG !== 'undefined' && !dl.children.length) {
-      COMMON_DIAG.forEach(function(d){
-        var opt = document.createElement('option');
-        opt.value = d; dl.appendChild(opt);
-      });
-    }
-    /* Also populate treat-ac-list from COMMON_TX */
-    var tl = document.getElementById('treat-ac-list');
-    if (tl && typeof COMMON_TX !== 'undefined' && !tl.children.length) {
-      COMMON_TX.forEach(function(t){
-        var opt = document.createElement('option');
-        opt.value = t; tl.appendChild(opt);
-      });
-    }
-  }, 20);
+function cw_getDraftKey(ptId) {
+  return 'cw_draft_visit_' + (ptId || (activePt ? activePt.id : 'default'));
 }
-function showAddRecord(){document.getElementById('rec-form').style.display='block';document.getElementById('rec-diag').focus()}
-function saveRecord(){
-  const diag=document.getElementById('rec-diag').value.trim();
-  if(!diag){alert('Diagnosis required.');return}
-  var ohiEl    = document.querySelector('input[name="rec-ohi"]:checked');
-  var painVals = painScale_getValues();
-  var trackRes = procTrack_getResult();
-  /* Manual duration fallback: minutes field or start/end time calc */
-  var manualMins = parseInt((document.getElementById('rec-dur-mins')||{}).value||0)||0
-                || parseInt((document.getElementById('proc-manual-mins')||{}).value||0)||0;
-  var finalDurMins = (trackRes && trackRes.durationMins) ? trackRes.durationMins : (manualMins > 0 ? manualMins : null);
-  var nowTs = Date.now();
-  const rec={
-    id:           nowTs.toString(),
-    date:         document.getElementById('rec-date').value,
-    diagnosis:    diag,
-    treatment:    document.getElementById('rec-treat').value,
-    notes:        document.getElementById('rec-notes').value,
-    occlusion:    (document.getElementById('rec-occlusion')||{}).value||'',
-    ohi:          ohiEl ? ohiEl.value : '',
-    pain:         painVals.pain,
-    relief:       painVals.relief,
-    startTs:      trackRes ? trackRes.startTs : (manualMins > 0 ? nowTs - manualMins*60000 : null),
-    endTs:        trackRes ? trackRes.endTs   : (manualMins > 0 ? nowTs : null),
-    durationMins: finalDurMins,
+
+function cw_saveDraft() {
+  if (!cw_visitState || !activePt) return;
+  try {
+    localStorage.setItem(cw_getDraftKey(activePt.id), JSON.stringify(cw_visitState));
+  } catch(e) {}
+}
+
+function cw_loadDraft(ptId) {
+  try {
+    var raw = localStorage.getItem(cw_getDraftKey(ptId));
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) {
+    return null;
+  }
+}
+
+function cw_clearDraft(ptId) {
+  try {
+    localStorage.removeItem(cw_getDraftKey(ptId || (activePt ? activePt.id : '')));
+  } catch(e) {}
+}
+
+function cw_lookupDefaultFee(procName, category) {
+  var schedule = feeSchedule_load();
+  if (!schedule || !schedule.length) return 0;
+  var match = schedule.find(function(f){
+    return f.procedure && f.procedure.toLowerCase() === (procName||'').toLowerCase();
+  });
+  if (match) return Number(match.price||0);
+
+  // Partial match by category
+  if (category === 'Endodontic') {
+    var m = schedule.find(function(f){ return f.category === 'Endodontic' && (f.procedure||'').includes('Molar'); });
+    if (m) return Number(m.price||0);
+  } else if (category === 'Restorative') {
+    var m2 = schedule.find(function(f){ return f.category === 'Restorative' || (f.procedure||'').includes('Composite'); });
+    if (m2) return Number(m2.price||0);
+  } else if (category === 'Surgical') {
+    var m3 = schedule.find(function(f){ return f.category === 'Surgical' || (f.procedure||'').includes('Extraction'); });
+    if (m3) return Number(m3.price||0);
+  } else if (category === 'Preventive') {
+    var m4 = schedule.find(function(f){ return f.category === 'Preventive' || (f.procedure||'').includes('Scaling'); });
+    if (m4) return Number(m4.price||0);
+  } else if (category === 'Prosthetic') {
+    var m5 = schedule.find(function(f){ return f.category === 'Prosthetic' || (f.procedure||'').includes('Zirconia'); });
+    if (m5) return Number(m5.price||0);
+  }
+  return 1000;
+}
+
+function cw_createDefaultProc(category, toothNo, procName, status) {
+  category = category || 'Restorative';
+  toothNo  = toothNo ? parseInt(toothNo, 10) : '';
+  status   = status || 'performed';
+
+  var defaultName = procName || '';
+  if (!defaultName) {
+    if (category === 'Endodontic') defaultName = 'Root Canal Treatment';
+    else if (category === 'Restorative') defaultName = 'Composite Restoration';
+    else if (category === 'VitalPulp') defaultName = 'Direct Pulp Capping (DPC)';
+    else if (category === 'Surgical') defaultName = 'Dental Extraction';
+    else if (category === 'Preventive') defaultName = 'Scaling & Polishing';
+    else if (category === 'Prosthetic') defaultName = 'Zirconia Crown';
+    else if (category === 'Orthodontic') defaultName = 'Orthodontic Wire / Review';
+    else if (category === 'Aligner') defaultName = 'Aligner Tracking Review';
+    else defaultName = 'Clinical Procedure';
+  }
+
+  var defaultFee = cw_lookupDefaultFee(defaultName, category);
+
+  var defaultCanals = [];
+  if (category === 'Endodontic') {
+    var canalNames = (toothNo && cw_RCT_CANALS_MAP[toothNo]) ? cw_RCT_CANALS_MAP[toothNo] : ['Canal 1','Canal 2','Canal 3'];
+    defaultCanals = canalNames.map(function(name){
+      return { name:name, wl:'', maf:'25', ref:'Cusp Tip', confirm:'Apex Locator + RVG' };
+    });
+  }
+
+  return {
+    id: 'cw_proc_' + Date.now() + '_' + Math.floor(Math.random()*10000),
+    toothNo: toothNo || '',
+    category: category,
+    procedureName: defaultName,
+    status: status, // 'performed' | 'planned' | 'in-progress' | 'deferred' | 'cancelled'
+    stage: category === 'Endodontic' ? 'Working Length' : (category === 'Prosthetic' ? 'Preparation' : 'Completed'),
+    catalogueFee: defaultFee,
+    agreedFee: defaultFee,
+    overrideReason: '',
+    billingUnit: 'per_tooth',
+    billingStatus: 'unbilled', // 'unbilled' | 'billed' | 'pending' | 'exempt'
+    billingEntryId: '',
+    billedAt: '',
+    planItemId: '',
+    details: {
+      // RCT
+      rctStage: 'Working Length',
+      canals: defaultCanals,
+      instrumentation: 'Rotary (ProTaper Gold)',
+      irrigation: 'NaOCl 3% + EDTA 17%',
+      activation: 'Ultrasonic Activation',
+      medicament: 'Ca(OH)2 Paste',
+      obturationTechnique: 'Single Cone',
+      sealer: 'AH Plus',
+      masterCone: '#25 0.04 taper',
+      postEndoRestoration: 'Composite Core',
+      // Composite
+      surfaces: { M:false, D:false, O:true, I:false, B:false, L:false, P:false },
+      cavityClass: 'Class II',
+      lesionDepth: 'Dentin (Deep)',
+      cariesStatus: 'Completely Excavated',
+      pulpalExposure: 'None',
+      isolation: 'Rubber Dam',
+      linerBase: 'RMGIC Liner',
+      adhesiveSystem: 'Universal Adhesive',
+      etchingProtocol: 'Selective Enamel Etch (15s)',
+      compositeBrand: '3M Filtek Z350 XT',
+      shade: 'A2',
+      layering: 'Incremental (Centripetal)',
+      curing: 'LED Light (20s)',
+      finishing: 'Sof-Lex Discs & Enhance Cups',
+      occlusionCheck: 'Articulating Paper (Checked & Adjusted)',
+      // Vital Pulp / DPC
+      pulpDiagnosis: 'Reversible Pulpitis',
+      excavationApproach: 'Selective Caries Removal',
+      pulpExposureType: 'Pinpoint Mechanical (<1mm)',
+      haemostasis: 'Achieved in <2 mins with NaOCl',
+      pulpProtectant: 'Biodentine / MTA',
+      vitalRestoration: 'RMGIC + Composite Base',
+      vitalReviewDate: '',
+      // Extraction
+      extractionIndication: 'Non-restorable Gross Caries',
+      extractionType: 'Simple Extraction',
+      preopFindings: 'Mobility Grade I',
+      laDetails: '2% Lignocaine with 1:200k Adrenaline (1.8ml)',
+      rootIntegrity: 'Intact Apex Confirmed',
+      socketFindings: 'Thoroughly curetted & debrided',
+      haemostasisMethod: 'Pressure Pack + Gelfoam',
+      suturesUsed: 'No Sutures Required',
+      suturesCount: 0,
+      extractionComplications: 'None / Uneventful',
+      postOpInstructions: 'Given verbal & written instructions',
+      // Scaling
+      scalingScope: 'Full Mouth',
+      calculusLevel: 'Moderate Supragingival & Subgingival',
+      periodontalFindings: 'Gingivitis with Bleeding on Probing',
+      scalingMethod: 'Ultrasonic Piezoelectric Scaler + Subgingival Curettes',
+      polishingDone: 'Prophy Paste Polishing Done',
+      fluorideDone: 'Fluoride Varnish Applied',
+      ohiGiven: 'Bass Brushing Technique + Interdental Brushes',
+      // Crown & Bridge
+      restorationType: 'Single Crown',
+      prepDate: todayISO(),
+      material: 'Zirconia Multilayer',
+      crownShade: 'A2',
+      labJobId: '',
+      provisionalRestoration: 'Bis-acryl Temporary',
+      impressionType: 'Intraoral Digital Scan',
+      tryInDate: '',
+      cementationDate: '',
+      cementUsed: 'Resin Cement (Self-Adhesive)',
+      fitOcclusionCheck: 'Marginal fit verified, occlusal clearance optimal',
+      // Ortho
+      orthoUpperWire: '0.016 NiTi',
+      orthoLowerWire: '0.014 NiTi',
+      orthoAction: 'Wire change & bracket re-alignment',
+      orthoElastics: 'None',
+      orthoEChain: 'Short E-Chain Upper 3-3',
+      orthoIpr: 'None',
+      // Aligner
+      alignerSetWearing: 1,
+      alignerNextSet: 2,
+      alignerTracking: 'Optimal / Complete seating',
+      alignerAttachments: 'All intact',
+      alignerIpr: '0.2mm 11-21',
+      alignerCompliance: '22 hours/day',
+      // Custom / General
+      customCategory: 'General',
+      customNotes: '',
+      materialsUsed: ''
+    }
   };
-  painScale_reset();
-  procTrack_reset();
-  const idx=DATA.patients.findIndex(p=>p.id===activePt.id);
-  if(idx<0) return;
-  /* Edit mode: update existing, otherwise add new */
-  var editIdEl = document.getElementById('rec-edit-id');
-  var editId = editIdEl ? editIdEl.textContent.trim() : '';
-  if (editId) {
-    var recIdx = DATA.patients[idx].records.findIndex(function(r){ return r.id===editId; });
-    if (recIdx >= 0) {
-      rec.id = editId; /* preserve original id */
-      DATA.patients[idx].records[recIdx] = rec;
+}
+
+function cw_initVisit(existingRec, defaultTooth) {
+  if (!activePt) return;
+
+  if (existingRec) {
+    // Editing existing record
+    var procs = [];
+    if (existingRec.procedures && Array.isArray(existingRec.procedures) && existingRec.procedures.length > 0) {
+      procs = JSON.parse(JSON.stringify(existingRec.procedures));
     } else {
-      DATA.patients[idx].records.unshift(rec);
+      // Convert legacy record to structured procedure
+      var cat = 'Restorative';
+      var treatStr = String(existingRec.treatment || '');
+      if (/rct|root canal|endo|obturation/i.test(treatStr)) cat = 'Endodontic';
+      else if (/extract|surgical|impaction/i.test(treatStr)) cat = 'Surgical';
+      else if (/scaling|polishing|perio|cleaning/i.test(treatStr)) cat = 'Preventive';
+      else if (/crown|bridge|zirconia|pfm|cap/i.test(treatStr)) cat = 'Prosthetic';
+      else if (/ortho|braces|wire/i.test(treatStr)) cat = 'Orthodontic';
+      else if (/aligner/i.test(treatStr)) cat = 'Aligner';
+      else if (/dpc|pulp cap|vital pulp/i.test(treatStr)) cat = 'VitalPulp';
+
+      var toothMatch = treatStr.match(/#?(\d{2})/);
+      var legacyTooth = existingRec.toothNo || (toothMatch ? parseInt(toothMatch[1], 10) : (defaultTooth || ''));
+
+      var legacyProc = cw_createDefaultProc(cat, legacyTooth, treatStr || 'Clinical Treatment', 'performed');
+      legacyProc.billingStatus = existingRec.billingStatus || (existingRec.billingEntryId ? 'billed' : 'unbilled');
+      legacyProc.billingEntryId = existingRec.billingEntryId || '';
+      legacyProc.details.customNotes = existingRec.notes || '';
+      procs.push(legacyProc);
     }
-    if (editIdEl) editIdEl.textContent = '';
-    var saveBtn = document.querySelector('[onclick="saveRecord()"]');
-    if (saveBtn) { saveBtn.textContent = 'Save'; saveBtn.style.background=''; }
+
+    cw_visitState = {
+      id: existingRec.id || Date.now().toString(),
+      isEdit: true,
+      patientId: activePt.id,
+      date: existingRec.date || todayISO(),
+      chiefComplaint: existingRec.chiefComplaint || existingRec.diagnosis || '',
+      clinicalFindings: existingRec.clinicalFindings || existingRec.findings || '',
+      diagnosis: existingRec.diagnosis || '',
+      medicalAlerts: existingRec.medicalAlerts || (activePt.medicalAlert || ''),
+      painScore: parseInt(existingRec.pain || existingRec.painScore || 0, 10) || 0,
+      reliefScore: parseInt(existingRec.relief || existingRec.reliefScore || 0, 10) || 0,
+      ohi: existingRec.ohi || '',
+      occlusion: existingRec.occlusion || '',
+      notes: existingRec.notes || '',
+      isRedo: existingRec.isRedo || false,
+      redoReason: existingRec.redoReason || '',
+      durationMins: existingRec.durationMins || (existingRec.duration > 0 ? Math.round(existingRec.duration/60) : 20),
+      combineCharges: existingRec.combineCharges || false,
+      procedures: procs,
+      nextAppt: existingRec.nextAppt || { date:'', time:'11:00', duration:30, stage:'', notes:'' }
+    };
   } else {
-    DATA.patients[idx].records.unshift(rec);
+    // New visit — check draft first or initialize fresh
+    var draft = cw_loadDraft(activePt.id);
+    if (draft && draft.procedures && draft.procedures.length > 0) {
+      cw_visitState = draft;
+      cw_visitState.isEdit = false;
+      cw_visitState.id = 'VISIT_' + Date.now();
+    } else {
+      var initialProc = cw_createDefaultProc('Restorative', defaultTooth || '', '', 'performed');
+      cw_visitState = {
+        id: 'VISIT_' + Date.now(),
+        isEdit: false,
+        patientId: activePt.id,
+        date: todayISO(),
+        chiefComplaint: '',
+        clinicalFindings: '',
+        diagnosis: '',
+        medicalAlerts: activePt.medicalAlert || '',
+        painScore: 0,
+        reliefScore: 0,
+        ohi: 'good',
+        occlusion: '',
+        notes: '',
+        isRedo: false,
+        redoReason: '',
+        durationMins: 20,
+        combineCharges: false,
+        procedures: [initialProc],
+        nextAppt: { date:'', time:'11:00', duration:30, stage:'', notes:'' }
+      };
+    }
   }
-  activePt=DATA.patients[idx]; saveData(); rec_saveRedo(rec); renderRecordsTab(); renderPatientHeader();
-  setTimeout(function(){ inv_autoDeduct(rec); }, 300);
-  setTimeout(function(){ nextAppt_prompt(rec); }, 500);
 }
-function deleteRecord(rid){
-  if(!confirm('Delete this record?'))return;
-  const idx=DATA.patients.findIndex(p=>p.id===activePt.id);
-  DATA.patients[idx].records=DATA.patients[idx].records.filter(r=>r.id!==rid);
-  activePt=DATA.patients[idx]; saveData(); renderRecordsTab();
+
+function cw_openNewVisit(prefillTooth, prefillProcName) {
+  cw_clearDraft(activePt ? activePt.id : '');
+  cw_initVisit(null, prefillTooth);
+  if (prefillProcName && cw_visitState && cw_visitState.procedures.length > 0) {
+    cw_visitState.procedures[0].procedureName = prefillProcName;
+    var cat = 'Restorative';
+    if (/rct|root canal|endo/i.test(prefillProcName)) cat = 'Endodontic';
+    else if (/extract/i.test(prefillProcName)) cat = 'Surgical';
+    else if (/scaling|cleaning/i.test(prefillProcName)) cat = 'Preventive';
+    else if (/crown|zirconia|bridge/i.test(prefillProcName)) cat = 'Prosthetic';
+    cw_visitState.procedures[0].category = cat;
+    cw_visitState.procedures[0].catalogueFee = cw_lookupDefaultFee(prefillProcName, cat);
+    cw_visitState.procedures[0].agreedFee = cw_visitState.procedures[0].catalogueFee;
+  }
+  var formWrap = document.getElementById('rec-form');
+  if (formWrap) {
+    formWrap.style.display = 'block';
+    formWrap.innerHTML = cw_renderVisitForm();
+    formWrap.scrollIntoView({ behavior:'smooth', block:'start' });
+  }
 }
+
+function cw_closeVisitForm() {
+  var formWrap = document.getElementById('rec-form');
+  if (formWrap) formWrap.style.display = 'none';
+  cw_clearDraft(activePt ? activePt.id : '');
+  cw_visitState = null;
+}
+
+function cw_addProcedure(category, toothNo) {
+  if (!cw_visitState) return;
+  var newProc = cw_createDefaultProc(category || 'Restorative', toothNo || '', '', 'performed');
+  cw_visitState.procedures.push(newProc);
+  cw_saveDraft();
+  var formWrap = document.getElementById('rec-form');
+  if (formWrap) formWrap.innerHTML = cw_renderVisitForm();
+}
+
+function cw_removeProcedure(procIndex) {
+  if (!cw_visitState || cw_visitState.procedures.length <= 1) {
+    alert('A visit must contain at least one procedure entry.');
+    return;
+  }
+  if (!confirm('Remove this procedure entry from the visit?')) return;
+  cw_visitState.procedures.splice(procIndex, 1);
+  cw_saveDraft();
+  var formWrap = document.getElementById('rec-form');
+  if (formWrap) formWrap.innerHTML = cw_renderVisitForm();
+}
+
+function cw_switchCategory(procIndex, newCat) {
+  if (!cw_visitState || !cw_visitState.procedures[procIndex]) return;
+  var oldTooth = cw_visitState.procedures[procIndex].toothNo;
+  var oldStatus = cw_visitState.procedures[procIndex].status;
+  cw_visitState.procedures[procIndex] = cw_createDefaultProc(newCat, oldTooth, '', oldStatus);
+  cw_saveDraft();
+  var formWrap = document.getElementById('rec-form');
+  if (formWrap) formWrap.innerHTML = cw_renderVisitForm();
+}
+
+function cw_selectTooth(procIndex, toothNo) {
+  if (!cw_visitState || !cw_visitState.procedures[procIndex]) return;
+  cw_visitState.procedures[procIndex].toothNo = toothNo;
+  // If RCT, refresh canals based on tooth
+  if (cw_visitState.procedures[procIndex].category === 'Endodontic') {
+    var canalNames = (toothNo && cw_RCT_CANALS_MAP[toothNo]) ? cw_RCT_CANALS_MAP[toothNo] : ['Canal 1','Canal 2','Canal 3'];
+    cw_visitState.procedures[procIndex].details.canals = canalNames.map(function(name){
+      return { name:name, wl:'', maf:'25', ref:'Cusp Tip', confirm:'Apex Locator + RVG' };
+    });
+  }
+  cw_saveDraft();
+  var formWrap = document.getElementById('rec-form');
+  if (formWrap) formWrap.innerHTML = cw_renderVisitForm();
+}
+
+function cw_toggleSurface(procIndex, surfaceKey) {
+  if (!cw_visitState || !cw_visitState.procedures[procIndex]) return;
+  var cur = cw_visitState.procedures[procIndex].details.surfaces || {};
+  cur[surfaceKey] = !cur[surfaceKey];
+  cw_visitState.procedures[procIndex].details.surfaces = cur;
+  cw_saveDraft();
+  var formWrap = document.getElementById('rec-form');
+  if (formWrap) formWrap.innerHTML = cw_renderVisitForm();
+}
+
+function cw_addCanal(procIndex) {
+  if (!cw_visitState || !cw_visitState.procedures[procIndex]) return;
+  var canals = cw_visitState.procedures[procIndex].details.canals || [];
+  var nextNum = canals.length + 1;
+  canals.push({ name:'Canal ' + nextNum, wl:'', maf:'25', ref:'Cusp Tip', confirm:'Apex Locator + RVG' });
+  cw_visitState.procedures[procIndex].details.canals = canals;
+  cw_saveDraft();
+  var formWrap = document.getElementById('rec-form');
+  if (formWrap) formWrap.innerHTML = cw_renderVisitForm();
+}
+
+function cw_removeCanal(procIndex, canalIdx) {
+  if (!cw_visitState || !cw_visitState.procedures[procIndex]) return;
+  var canals = cw_visitState.procedures[procIndex].details.canals || [];
+  if (canals.length <= 1) return;
+  canals.splice(canalIdx, 1);
+  cw_visitState.procedures[procIndex].details.canals = canals;
+  cw_saveDraft();
+  var formWrap = document.getElementById('rec-form');
+  if (formWrap) formWrap.innerHTML = cw_renderVisitForm();
+}
+
+function cw_setProcStatus(procIndex, status) {
+  if (!cw_visitState || !cw_visitState.procedures[procIndex]) return;
+  cw_visitState.procedures[procIndex].status = status;
+  cw_saveDraft();
+  var formWrap = document.getElementById('rec-form');
+  if (formWrap) formWrap.innerHTML = cw_renderVisitForm();
+}
+
+function cw_updateProcFee(procIndex, val) {
+  if (!cw_visitState || !cw_visitState.procedures[procIndex]) return;
+  var num = parseFloat(val) || 0;
+  cw_visitState.procedures[procIndex].agreedFee = Math.max(0, num);
+  cw_saveDraft();
+  var previewEl = document.getElementById('cw-price-summary-box');
+  if (previewEl) previewEl.innerHTML = cw_renderPriceSummary();
+}
+
+function cw_toggleCombineCharges() {
+  if (!cw_visitState) return;
+  var el = document.getElementById('cw-combine-charges-chk');
+  cw_visitState.combineCharges = el ? el.checked : false;
+  cw_saveDraft();
+  var previewEl = document.getElementById('cw-price-summary-box');
+  if (previewEl) previewEl.innerHTML = cw_renderPriceSummary();
+}
+
+/* ── RENDER PRICE SUMMARY ── */
+function cw_renderPriceSummary() {
+  if (!cw_visitState) return '';
+  var performedProcs = cw_visitState.procedures.filter(function(p){ return p.status === 'performed'; });
+  var plannedProcs   = cw_visitState.procedures.filter(function(p){ return p.status !== 'performed'; });
+
+  var performedTotal = performedProcs.reduce(function(s,p){ return s + Number(p.agreedFee||0); }, 0);
+  var plannedTotal   = plannedProcs.reduce(function(s,p){ return s + Number(p.agreedFee||0); }, 0);
+
+  var h = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">';
+  h += '<div>';
+  h += '<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Financial Summary for this Visit</div>';
+  h += '<div style="display:flex;gap:14px;align-items:center;margin-top:4px">';
+  h += '<div><span style="font-size:11px;color:#059669;font-weight:700">🟢 Performed (Billable Now):</span> <strong style="font-size:15px;color:#059669">'+fmtMoney(performedTotal)+'</strong></div>';
+  if (plannedTotal > 0) {
+    h += '<div><span style="font-size:11px;color:#1d4ed8;font-weight:700">📋 Planned (Forecast):</span> <strong style="font-size:15px;color:#1d4ed8">'+fmtMoney(plannedTotal)+'</strong></div>';
+  }
+  h += '</div>';
+  h += '</div>';
+
+  if (performedProcs.length > 1) {
+    h += '<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#1e3a5f;cursor:pointer;background:#fff;border:1px solid #cbd5e1;padding:6px 12px;border-radius:8px">';
+    h += '<input type="checkbox" id="cw-combine-charges-chk" '+(cw_visitState.combineCharges?'checked':'')+' onchange="cw_toggleCombineCharges()"/>';
+    h += '🧾 Combine Charges into 1 Line Item';
+    h += '</label>';
+  }
+  h += '</div>';
+
+  if (performedProcs.length > 0) {
+    h += '<div style="margin-top:8px;font-size:11px;color:#64748b">';
+    if (cw_visitState.combineCharges && performedProcs.length > 1) {
+      h += 'ℹ️ Will create <strong>1 combined invoice item</strong> for ₹' + performedTotal.toLocaleString('en-IN') + ' itemizing all ' + performedProcs.length + ' performed procedures.';
+    } else {
+      h += 'ℹ️ Will create <strong>' + performedProcs.length + ' individual linked charge(s)</strong> (one per tooth/procedure combination).';
+    }
+    h += '</div>';
+  } else {
+    h += '<div style="margin-top:8px;font-size:11px;color:#d97706;font-weight:600">ℹ️ No procedures marked Performed. Saving will record clinical examination &amp; treatment plan without generating any financial charge.</div>';
+  }
+
+  return h;
+}
+
+/* ── PROCEDURE DYNAMIC FORM RENDERERS ── */
+function cw_renderRctForm(proc, idx) {
+  var d = proc.details || {};
+  var canals = d.canals || [];
+
+  var h = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:10px">';
+  h += '<div style="font-size:11.5px;font-weight:800;color:#1e3a5f;margin-bottom:8px">🔬 Root Canal Clinical Stage &amp; Parameters</div>';
+
+  h += '<div class="form-grid-3" style="gap:8px;margin-bottom:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">RCT Stage</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.rctStage=this.value;cw_saveDraft()">';
+  ['Access & Coronal Scouting','Working Length (WL)','Cleaning & Shaping (BMD)','Master Cone Fit','Obturation','Post-Endodontic Restoration','Completed RCT','Retreatment'].forEach(function(st){
+    h += '<option '+(d.rctStage===st?'selected':'')+'>'+st+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Instrumentation System</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.instrumentation=this.value;cw_saveDraft()">';
+  ['Rotary (ProTaper Gold)','Rotary (WaveOne Gold)','Rotary (TruNatomy)','Rotary (HyFlex CM)','Hand K-Files / Step-Back','Reciprocating System','Hybrid Technique'].forEach(function(ins){
+    h += '<option '+(d.instrumentation===ins?'selected':'')+'>'+ins+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Irrigation Protocol</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.irrigation||'NaOCl 3% + EDTA 17%')+'" onchange="cw_visitState.procedures['+idx+'].details.irrigation=this.value;cw_saveDraft()"/>';
+  h += '</div></div>';
+
+  // Canals working lengths
+  h += '<div style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px;margin-bottom:8px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  h += '<div style="font-size:11px;font-weight:700;color:#0369a1">📐 Canals Working Lengths &amp; MAF ('+canals.length+' canals)</div>';
+  h += '<button type="button" class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;font-size:10px;padding:2px 8px" onclick="cw_addCanal('+idx+')">+ Add Canal</button>';
+  h += '</div>';
+
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">';
+  canals.forEach(function(c, cIdx){
+    h += '<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:8px;position:relative">';
+    if (canals.length > 1) {
+      h += '<button type="button" style="position:absolute;top:4px;right:4px;background:transparent;border:none;color:#dc2626;cursor:pointer;font-size:12px" onclick="cw_removeCanal('+idx+','+cIdx+')" title="Remove canal">✕</button>';
+    }
+    h += '<input class="form-input" style="font-weight:800;color:#0369a1;padding:3px 6px;font-size:11px;margin-bottom:4px" value="'+esc(c.name||'Canal')+'" onchange="cw_visitState.procedures['+idx+'].details.canals['+cIdx+'].name=this.value;cw_saveDraft()"/>';
+    h += '<div style="display:flex;gap:4px;margin-bottom:4px">';
+    h += '<input class="form-input" type="number" step="0.5" placeholder="WL (mm)" style="font-size:11px;padding:3px 6px" value="'+esc(c.wl||'')+'" onchange="cw_visitState.procedures['+idx+'].details.canals['+cIdx+'].wl=this.value;cw_saveDraft()"/>';
+    h += '<input class="form-input" placeholder="MAF (e.g. 25)" style="font-size:11px;padding:3px 6px" value="'+esc(c.maf||'')+'" onchange="cw_visitState.procedures['+idx+'].details.canals['+cIdx+'].maf=this.value;cw_saveDraft()"/>';
+    h += '</div>';
+    h += '<input class="form-input" placeholder="Ref Point (e.g. MB Cusp)" style="font-size:10px;padding:2px 6px" value="'+esc(c.ref||'')+'" onchange="cw_visitState.procedures['+idx+'].details.canals['+cIdx+'].ref=this.value;cw_saveDraft()"/>';
+    h += '</div>';
+  });
+  h += '</div></div>';
+
+  h += '<div class="form-grid-3" style="gap:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Medicament / Sealer</label>';
+  h += '<input class="form-input" style="font-size:12px" placeholder="e.g. Ca(OH)2 / AH Plus" value="'+esc(d.sealer||'AH Plus')+'" onchange="cw_visitState.procedures['+idx+'].details.sealer=this.value;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Obturation Technique</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.obturationTechnique=this.value;cw_saveDraft()">';
+  ['Single Cone Match-Taper','Warm Vertical Compaction','Cold Lateral Condensation','Carrier-Based Gutta-Percha','MTA Apical Plug'].forEach(function(ob){
+    h += '<option '+(d.obturationTechnique===ob?'selected':'')+'>'+ob+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Post-Endo Restoration</label>';
+  h += '<input class="form-input" style="font-size:12px" placeholder="e.g. Fiber Post + Composite Core" value="'+esc(d.postEndoRestoration||'Composite Core')+'" onchange="cw_visitState.procedures['+idx+'].details.postEndoRestoration=this.value;cw_saveDraft()"/></div>';
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+function cw_renderCompositeForm(proc, idx) {
+  var d = proc.details || {};
+  var surfaces = d.surfaces || {};
+
+  var h = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:10px">';
+  h += '<div style="font-size:11.5px;font-weight:800;color:#1e3a5f;margin-bottom:8px">✨ Composite Restoration Details</div>';
+
+  // Surface selector buttons
+  h += '<div style="margin-bottom:10px">';
+  h += '<label class="form-label" style="font-size:11px;margin-bottom:4px">Tooth Surfaces Involved (Multi-Surface Support)</label>';
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  [
+    { id:'M', label:'M (Mesial)' },
+    { id:'D', label:'D (Distal)' },
+    { id:'O', label:'O (Occlusal)' },
+    { id:'I', label:'I (Incisal)' },
+    { id:'B', label:'B (Buccal/Facial)' },
+    { id:'L', label:'L (Lingual)' },
+    { id:'P', label:'P (Palatal)' }
+  ].forEach(function(sf){
+    var active = !!surfaces[sf.id];
+    h += '<button type="button" class="btn btn-sm '+(active?'btn-primary':'btn-ghost')+'" style="font-size:11px;padding:4px 10px;font-weight:700;border-radius:6px;'+(active?'background:#1d4ed8;color:#fff':'background:#fff;border:1px solid #cbd5e1;color:#334155')+'" onclick="cw_toggleSurface('+idx+',\''+sf.id+'\')">'+sf.label+'</button>';
+  });
+  h += '</div></div>';
+
+  h += '<div class="form-grid-3" style="gap:8px;margin-bottom:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Cavity Classification</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.cavityClass=this.value;cw_saveDraft()">';
+  ['Class I','Class II (MO)','Class II (DO)','Class II (MOD)','Class III','Class IV','Class V (Cervical)','Class VI'].forEach(function(c){
+    h += '<option '+(d.cavityClass===c?'selected':'')+'>'+c+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Isolation Method</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.isolation=this.value;cw_saveDraft()">';
+  ['Rubber Dam Isolation','Cotton Rolls & Retraction','Isolite / Suction Shield'].forEach(function(iso){
+    h += '<option '+(d.isolation===iso?'selected':'')+'>'+iso+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Liner / Pulp Protection</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.linerBase=this.value;cw_saveDraft()">';
+  ['None (Direct Bond)','RMGIC Liner (Vitrebond)','Ca(OH)2 (Dycal)','TheraCal LC / Biodentine','Flowable Composite Cushion'].forEach(function(lin){
+    h += '<option '+(d.linerBase===lin?'selected':'')+'>'+lin+'</option>';
+  });
+  h += '</select></div>';
+  h += '</div>';
+
+  h += '<div class="form-grid-3" style="gap:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Adhesive &amp; Etching</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.adhesiveSystem||'Universal Adhesive (Selective Etch)')+'" onchange="cw_visitState.procedures['+idx+'].details.adhesiveSystem=this.value;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Composite Brand &amp; Material</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.compositeBrand||'3M Filtek Z350 XT')+'" onchange="cw_visitState.procedures['+idx+'].details.compositeBrand=this.value;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Shade &amp; Polishing</label>';
+  h += '<input class="form-input" style="font-size:12px" placeholder="e.g. A2 / Sof-Lex polished" value="'+esc(d.shade||'A2 (Checked Occlusion & Contacts)')+'" onchange="cw_visitState.procedures['+idx+'].details.shade=this.value;cw_saveDraft()"/></div>';
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+function cw_renderVitalPulpForm(proc, idx) {
+  var d = proc.details || {};
+  var h = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:10px">';
+  h += '<div style="font-size:11.5px;font-weight:800;color:#1e3a5f;margin-bottom:8px">🩸 Deep Caries / Vital Pulp Therapy Protocol</div>';
+
+  h += '<div class="form-grid-3" style="gap:8px;margin-bottom:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Excavation Approach</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.excavationApproach=this.value;cw_saveDraft()">';
+  ['Selective Caries Removal (Soft Dentin Left Over Pulp)','Stepwise Excavation (2-Stage)','Complete Caries Excavation'].forEach(function(ex){
+    h += '<option '+(d.excavationApproach===ex?'selected':'')+'>'+ex+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Pulp Exposure Status</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.pulpExposureType=this.value;cw_saveDraft()">';
+  ['No Exposure (Indirect Pulp Treatment)','Pinpoint Mechanical Exposure (<1mm)','Carious Pulp Exposure','Traumatic Exposure'].forEach(function(pe){
+    h += '<option '+(d.pulpExposureType===pe?'selected':'')+'>'+pe+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Capping / Protective Material</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.pulpProtectant=this.value;cw_saveDraft()">';
+  ['Biodentine Active Biosilicate','MTA (Mineral Trioxide Aggregate)','TheraCal LC (Resin-Modified Calcium Silicate)','Dycal (Calcium Hydroxide)'].forEach(function(mat){
+    h += '<option '+(d.pulpProtectant===mat?'selected':'')+'>'+mat+'</option>';
+  });
+  h += '</select></div>';
+  h += '</div>';
+
+  h += '<div class="form-grid-2" style="gap:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Restoration Performed</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.vitalRestoration||'GIC Base + Composite Seal')+'" onchange="cw_visitState.procedures['+idx+'].details.vitalRestoration=this.value;cw_saveDraft()"/></div>';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Review &amp; Follow-up Date</label>';
+  h += '<input class="form-input" type="date" style="font-size:12px" value="'+esc(d.vitalReviewDate||'')+'" onchange="cw_visitState.procedures['+idx+'].details.vitalReviewDate=this.value;cw_saveDraft()"/></div>';
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+function cw_renderExtractionForm(proc, idx) {
+  var d = proc.details || {};
+  var h = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:10px">';
+  h += '<div style="font-size:11.5px;font-weight:800;color:#1e3a5f;margin-bottom:8px">🩹 Surgical &amp; Extraction Details</div>';
+
+  h += '<div class="form-grid-3" style="gap:8px;margin-bottom:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Extraction Type</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.extractionType=this.value;cw_saveDraft()">';
+  ['Simple Forceps Extraction','Surgical / Transalveolar Extraction','Root Sectioning & Elevation','Impaction (Class I/II Mesioangular)','Impaction (Horizontal/Distal)'].forEach(function(t){
+    h += '<option '+(d.extractionType===t?'selected':'')+'>'+t+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Local Anaesthetic</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.laDetails||'2% Lignocaine with 1:200k Adr (1.8ml)')+'" onchange="cw_visitState.procedures['+idx+'].details.laDetails=this.value;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Root Integrity &amp; Outcome</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.rootIntegrity=this.value;cw_saveDraft()">';
+  ['Intact Apex Confirmed','Root Tip Retrieved with Apexo','Multi-rooted Separated Intact','Surgical Bone Relief Done'].forEach(function(r){
+    h += '<option '+(d.rootIntegrity===r?'selected':'')+'>'+r+'</option>';
+  });
+  h += '</select></div>';
+  h += '</div>';
+
+  h += '<div class="form-grid-3" style="gap:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Haemostasis</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.haemostasisMethod||'Pressure Pack + Gelfoam')+'" onchange="cw_visitState.procedures['+idx+'].details.haemostasisMethod=this.value;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Sutures</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.suturesUsed=this.value;cw_saveDraft()">';
+  ['No Sutures Required','Silk 3-0 (Interrupted)','Vicryl 4-0 (Resorbable)','PGA 4-0 (Figure-of-8)'].forEach(function(s){
+    h += '<option '+(d.suturesUsed===s?'selected':'')+'>'+s+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Post-Op Instructions</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.postOpInstructions||'Verbal & written instructions given')+'" onchange="cw_visitState.procedures['+idx+'].details.postOpInstructions=this.value;cw_saveDraft()"/></div>';
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+function cw_renderScalingForm(proc, idx) {
+  var d = proc.details || {};
+  var h = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:10px">';
+  h += '<div style="font-size:11.5px;font-weight:800;color:#1e3a5f;margin-bottom:8px">🧼 Scaling, Polishing &amp; Periodontal Management</div>';
+
+  h += '<div class="form-grid-3" style="gap:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Treatment Scope</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.scalingScope=this.value;cw_saveDraft()">';
+  ['Full Mouth Scaling & Polishing','Upper Arch Only','Lower Arch Only','Quadrant 1 & 4','Quadrant 2 & 3','Localized Deep Curettage'].forEach(function(sc){
+    h += '<option '+(d.scalingScope===sc?'selected':'')+'>'+sc+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Periodontal Findings</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.periodontalFindings||'Gingivitis with Bleeding on Probing')+'" onchange="cw_visitState.procedures['+idx+'].details.periodontalFindings=this.value;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Fluoride &amp; Recall</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.fluorideDone||'Polished with Prophy Paste, 6-month Recall')+'" onchange="cw_visitState.procedures['+idx+'].details.fluorideDone=this.value;cw_saveDraft()"/></div>';
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+function cw_renderCrownForm(proc, idx) {
+  var d = proc.details || {};
+  var patientLabJobs = (DATA.labJobs || []).filter(function(j){
+    return j.patientId === (activePt?activePt.id:'') || (j.patientName && activePt && j.patientName.toLowerCase() === activePt.name.toLowerCase());
+  });
+
+  var h = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:10px">';
+  h += '<div style="font-size:11.5px;font-weight:800;color:#1e3a5f;margin-bottom:8px">💎 Prosthetic &amp; Lab Case Integration</div>';
+
+  h += '<div class="form-grid-3" style="gap:8px;margin-bottom:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Restoration Type</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.restorationType=this.value;cw_saveDraft()">';
+  ['Single Crown','3-Unit Bridge','4-Unit Bridge','Inlay / Onlay','Laminate Veneer','Endocrown','Post & Core + Crown'].forEach(function(t){
+    h += '<option '+(d.restorationType===t?'selected':'')+'>'+t+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Material</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.material=this.value;cw_saveDraft()">';
+  ['Zirconia Multilayer (High Translucency)','Monolithic Zirconia','Lithium Disilicate (E.max)','PFM (Porcelain Fused to Metal)','Full Metal (Gold/Ni-Cr)','PMMA Temporary'].forEach(function(m){
+    h += '<option '+(d.material===m?'selected':'')+'>'+m+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Shade</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.crownShade||'A2')+'" onchange="cw_visitState.procedures['+idx+'].details.crownShade=this.value;cw_saveDraft()"/></div>';
+  h += '</div>';
+
+  h += '<div class="form-grid-3" style="gap:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Linked Lab Case</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.labJobId=this.value;cw_saveDraft()">';
+  h += '<option value="">— No linked lab job —</option>';
+  patientLabJobs.forEach(function(j){
+    h += '<option value="'+j.id+'" '+(d.labJobId===j.id?'selected':'')+'>'+esc(j.workType||'Lab Case')+' ('+esc(j.labName||'Lab')+') — '+esc(j.status||'Active')+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Provisional &amp; Scan</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.provisionalRestoration||'Bis-acryl Temp + Digital Scan')+'" onchange="cw_visitState.procedures['+idx+'].details.provisionalRestoration=this.value;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Cement Used</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.cementUsed||'Self-Adhesive Resin Cement')+'" onchange="cw_visitState.procedures['+idx+'].details.cementUsed=this.value;cw_saveDraft()"/></div>';
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+function cw_renderOrthoForm(proc, idx) {
+  var d = proc.details || {};
+  var h = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:10px">';
+  h += '<div style="font-size:11.5px;font-weight:800;color:#1e3a5f;margin-bottom:8px">📏 Orthodontic Review Details</div>';
+
+  h += '<div class="form-grid-3" style="gap:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Upper Arch Wire</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.orthoUpperWire||'0.016 NiTi')+'" onchange="cw_visitState.procedures['+idx+'].details.orthoUpperWire=this.value;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Lower Arch Wire</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.orthoLowerWire||'0.014 NiTi')+'" onchange="cw_visitState.procedures['+idx+'].details.orthoLowerWire=this.value;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Auxiliaries &amp; Elastics</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.orthoAction||'E-Chain Upper 3-3, Class II Elastics')+'" onchange="cw_visitState.procedures['+idx+'].details.orthoAction=this.value;cw_saveDraft()"/></div>';
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+function cw_renderAlignerForm(proc, idx) {
+  var d = proc.details || {};
+  var h = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:10px">';
+  h += '<div style="font-size:11.5px;font-weight:800;color:#1e3a5f;margin-bottom:8px">🌟 Aligner Clinical Review Details</div>';
+
+  h += '<div class="form-grid-3" style="gap:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Current Set Wearing</label>';
+  h += '<input class="form-input" type="number" style="font-size:12px" value="'+esc(String(d.alignerSetWearing||1))+'" onchange="cw_visitState.procedures['+idx+'].details.alignerSetWearing=parseInt(this.value,10)||1;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Tracking Quality</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_visitState.procedures['+idx+'].details.alignerTracking=this.value;cw_saveDraft()">';
+  ['Optimal Seating / Full Tracking','Mild Lag / Advised Chewies','Loss of Tracking / Refinement Needed'].forEach(function(tr){
+    h += '<option '+(d.alignerTracking===tr?'selected':'')+'>'+tr+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">IPR &amp; Attachment Notes</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(d.alignerIpr||'All attachments intact, compliance 22h/d')+'" onchange="cw_visitState.procedures['+idx+'].details.alignerIpr=this.value;cw_saveDraft()"/></div>';
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+function cw_renderCustomForm(proc, idx) {
+  var d = proc.details || {};
+  var h = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:10px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Custom Procedure Notes &amp; Materials</label>';
+  h += '<textarea class="form-input" rows="2" style="font-size:12px" placeholder="Clinical technique, materials, instruments..." onchange="cw_visitState.procedures['+idx+'].details.customNotes=this.value;cw_saveDraft()">'+esc(d.customNotes||'')+'</textarea>';
+  h += '</div></div>';
+  return h;
+}
+
+/* ── PROCEDURE CARD RENDERER ── */
+function cw_renderProcCard(proc, idx) {
+  var isPerformed = proc.status === 'performed';
+  var catObj = cw_PROC_CATEGORIES.find(function(c){ return c.id === proc.category; }) || cw_PROC_CATEGORIES[0];
+
+  var h = '<div class="card" style="background:#fff;border:1.5px solid '+(isPerformed?'#86efac':'#bfdbfe')+';border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,0.03)">';
+
+  // Header strip of the procedure card
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">';
+  h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+  h += '<span style="font-size:13px;font-weight:800;color:#1e3a5f">Procedure #' + (idx+1) + ': ' + catObj.icon + ' ' + esc(proc.category) + '</span>';
+  if (proc.toothNo) {
+    h += '<span class="badge badge-blue" style="font-size:11px;font-weight:800">Tooth #' + proc.toothNo + '</span>';
+  }
+  h += '</div>';
+
+  h += '<div style="display:flex;align-items:center;gap:6px">';
+  // Status Toggle: Performed vs Planned
+  h += '<button type="button" class="btn btn-sm '+(isPerformed?'btn-primary':'btn-ghost')+'" style="font-size:11px;font-weight:700;padding:4px 10px;'+(isPerformed?'background:#059669;color:#fff;border-color:#059669':'background:#f8fafc;color:#475569')+'" onclick="cw_setProcStatus('+idx+',\'performed\')">✅ Performed</button>';
+  h += '<button type="button" class="btn btn-sm '+(!isPerformed?'btn-primary':'btn-ghost')+'" style="font-size:11px;font-weight:700;padding:4px 10px;'+(!isPerformed?'background:#1d4ed8;color:#fff;border-color:#1d4ed8':'background:#f8fafc;color:#475569')+'" onclick="cw_setProcStatus('+idx+',\'planned\')">📋 Planned</button>';
+
+  if (cw_visitState.procedures.length > 1) {
+    h += '<button type="button" class="btn btn-red btn-sm" style="font-size:11px;padding:4px 8px" onclick="cw_removeProcedure('+idx+')" title="Remove procedure">🗑</button>';
+  }
+  h += '</div>';
+  h += '</div>';
+
+  // Form row: Category, Tooth Number, Procedure Name, Agreed Fee
+  h += '<div class="form-grid-4" style="gap:8px;align-items:flex-end">';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Category</label>';
+  h += '<select class="form-input" style="font-size:12px" onchange="cw_switchCategory('+idx+',this.value)">';
+  cw_PROC_CATEGORIES.forEach(function(c){
+    h += '<option value="'+c.id+'" '+(proc.category===c.id?'selected':'')+'>'+c.icon+' '+c.label+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Tooth No (FDI 11–48 / 51–85)</label>';
+  h += '<input class="form-input" type="number" min="11" max="85" style="font-size:12px;font-weight:800;color:#1e3a5f" placeholder="e.g. 36" value="'+(proc.toothNo||'')+'" oninput="cw_selectTooth('+idx+',this.value)"/>';
+  h += '</div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Procedure Description</label>';
+  h += '<input class="form-input" style="font-size:12px" value="'+esc(proc.procedureName||'')+'" placeholder="Procedure name" onchange="cw_visitState.procedures['+idx+'].procedureName=this.value;cw_saveDraft()"/>';
+  h += '</div>';
+
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Fee (₹) '+(isPerformed?'<span style="color:#059669">• Billable</span>':'<span style="color:#1d4ed8">• Est.</span>')+'</label>';
+  h += '<input class="form-input" type="number" style="font-size:12px;font-weight:800;color:'+(isPerformed?'#059669':'#1d4ed8')+'" value="'+(proc.agreedFee||0)+'" oninput="cw_updateProcFee('+idx+',this.value)"/>';
+  h += '</div>';
+
+  h += '</div>';
+
+  // Dynamic category specific form fields
+  if (proc.category === 'Endodontic') {
+    h += cw_renderRctForm(proc, idx);
+  } else if (proc.category === 'Restorative') {
+    h += cw_renderCompositeForm(proc, idx);
+  } else if (proc.category === 'VitalPulp') {
+    h += cw_renderVitalPulpForm(proc, idx);
+  } else if (proc.category === 'Surgical') {
+    h += cw_renderExtractionForm(proc, idx);
+  } else if (proc.category === 'Preventive') {
+    h += cw_renderScalingForm(proc, idx);
+  } else if (proc.category === 'Prosthetic') {
+    h += cw_renderCrownForm(proc, idx);
+  } else if (proc.category === 'Orthodontic') {
+    h += cw_renderOrthoForm(proc, idx);
+  } else if (proc.category === 'Aligner') {
+    h += cw_renderAlignerForm(proc, idx);
+  } else {
+    h += cw_renderCustomForm(proc, idx);
+  }
+
+  h += '</div>';
+  return h;
+}
+
+/* ── COMPLETE VISIT FORM RENDERER ── */
+function cw_renderVisitForm() {
+  if (!cw_visitState) return '';
+
+  var h = '<div class="alert-box alert-blue" style="background:#f8fafc;border:2px solid #3b82f6;border-radius:16px;padding:18px;margin-bottom:18px">';
+
+  // Top header with title and close
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1.5px solid #e2e8f0;padding-bottom:10px">';
+  h += '<div>';
+  h += '<div style="font-size:16px;font-weight:800;color:#1e3a5f">' + (cw_visitState.isEdit ? '✏️ Edit Clinical Visit' : '🩺 Integrated Clinical Visit Entry') + '</div>';
+  h += '<div style="font-size:11px;color:#64748b">Patient: <strong>' + esc(activePt.name) + '</strong> (' + esc(activePt.id) + ') • Home of Smiles v72</div>';
+  h += '</div>';
+  h += '<button type="button" class="btn btn-ghost btn-sm" onclick="cw_closeVisitForm()" style="font-weight:700">✕ Close</button>';
+  h += '</div>';
+
+  // Stopwatch timer widget
+  h += procTrack_renderWidget();
+
+  // Clinical Examination & Findings
+  h += '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin-bottom:14px">';
+  h += '<div style="font-size:12px;font-weight:800;color:#1e3a5f;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">📋 Clinical Examination &amp; Diagnosis</div>';
+
+  h += '<div class="form-grid-3" style="gap:10px;margin-bottom:10px">';
+  h += '<div class="form-group"><label class="form-label">Visit Date *</label><input class="form-input" id="cw-visit-date" type="date" value="'+(cw_visitState.date||todayISO())+'" onchange="cw_visitState.date=this.value;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label">Diagnosis / Complaint *</label>';
+  h += '<input class="form-input" id="cw-visit-diag" placeholder="e.g. Irreversible Pulpitis #36" value="'+esc(cw_visitState.diagnosis||'')+'" list="cw-diag-list" oninput="cw_visitState.diagnosis=this.value;cw_saveDraft()"/>';
+  h += '<datalist id="cw-diag-list">';
+  if (typeof COMMON_DIAG !== 'undefined') {
+    COMMON_DIAG.forEach(function(d){ h += '<option value="'+d+'"/>'; });
+  }
+  h += '</datalist></div>';
+
+  h += '<div class="form-group"><label class="form-label">Medical History / Alerts</label>';
+  h += '<input class="form-input" id="cw-visit-med" placeholder="e.g. Hypertension, Penicillin allergy" value="'+esc(cw_visitState.medicalAlerts||'')+'" oninput="cw_visitState.medicalAlerts=this.value;cw_saveDraft()"/>';
+  h += '</div>';
+  h += '</div>';
+
+  // Quick Diagnosis Tags
+  h += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">';
+  ['Deep Caries','Irreversible Pulpitis','Apical Periodontitis','Gingivitis','Tooth Fracture','Sensitivity','Impacted 3rd Molar','Crown Review'].forEach(function(d){
+    h += '<button type="button" class="btn btn-sm" style="background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;border-radius:20px;padding:2px 8px;font-size:10.5px;font-weight:700" onclick="document.getElementById(\'cw-visit-diag\').value=\''+d+'\';cw_visitState.diagnosis=\''+d+'\';cw_saveDraft()">+ '+d+'</button>';
+  });
+  h += '</div>';
+
+  // Clinical findings, pain, OHI, occlusion
+  h += '<div class="form-grid-3" style="gap:10px;margin-bottom:10px">';
+  h += '<div class="form-group"><label class="form-label">Pre-Op Pain (0–10)</label>';
+  h += '<input class="form-input" type="number" min="0" max="10" placeholder="0 = None, 10 = Severe" value="'+(cw_visitState.painScore||0)+'" oninput="cw_visitState.painScore=parseInt(this.value,10)||0;cw_saveDraft()"/></div>';
+
+  h += '<div class="form-group"><label class="form-label">Oral Hygiene (OHI)</label>';
+  h += '<select class="form-input" onchange="cw_visitState.ohi=this.value;cw_saveDraft()">';
+  ['good','fair','poor'].forEach(function(o){
+    h += '<option value="'+o+'" '+(cw_visitState.ohi===o?'selected':'')+'>'+(o==='good'?'🟢 Good':o==='fair'?'🟡 Fair':'🔴 Poor')+'</option>';
+  });
+  h += '</select></div>';
+
+  h += '<div class="form-group"><label class="form-label">Occlusion / Bite Findings</label>';
+  h += '<input class="form-input" placeholder="e.g. Deep bite, Canine guidance" value="'+esc(cw_visitState.occlusion||'')+'" oninput="cw_visitState.occlusion=this.value;cw_saveDraft()"/></div>';
+  h += '</div>';
+
+  h += '<div class="form-group"><label class="form-label">Chief Complaint &amp; Clinical Notes</label>';
+  h += '<textarea class="form-input" rows="2" placeholder="Patient complaints, objective findings, radiographs, anesthesia..." oninput="cw_visitState.notes=this.value;cw_saveDraft()">'+esc(cw_visitState.notes||'')+'</textarea>';
+  h += '</div>';
+
+  h += '</div>';
+
+  // Procedure list section
+  h += '<div style="margin-bottom:14px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
+  h += '<div style="font-size:13px;font-weight:800;color:#1e3a5f">🦷 Procedures in this Visit (' + cw_visitState.procedures.length + ')</div>';
+  h += '<div style="display:flex;gap:6px">';
+  h += '<button type="button" class="btn btn-primary btn-sm" onclick="cw_addProcedure(\'Restorative\')">+ Add Procedure</button>';
+  h += '<button type="button" class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none" onclick="cw_addProcedure(\'Endodontic\')">+ RCT</button>';
+  h += '</div>';
+  h += '</div>';
+
+  cw_visitState.procedures.forEach(function(p, pIdx){
+    h += cw_renderProcCard(p, pIdx);
+  });
+  h += '</div>';
+
+  // Linked Follow-Up Appointment Scheduler
+  var nextAppt = cw_visitState.nextAppt || {};
+  h += '<div style="background:#fff;border:1.5px dashed #cbd5e1;border-radius:12px;padding:12px 14px;margin-bottom:14px">';
+  h += '<div style="font-size:12px;font-weight:800;color:#1e3a5f;margin-bottom:8px">📅 Schedule Follow-Up Appointment (Optional)</div>';
+  h += '<div class="form-grid-4" style="gap:8px">';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Follow-Up Date</label><input class="form-input" type="date" style="font-size:12px" value="'+(nextAppt.date||'')+'" onchange="cw_visitState.nextAppt.date=this.value;cw_saveDraft()"/></div>';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Time</label><input class="form-input" type="time" style="font-size:12px" value="'+(nextAppt.time||'11:00')+'" onchange="cw_visitState.nextAppt.time=this.value;cw_saveDraft()"/></div>';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Next Clinical Stage</label><input class="form-input" style="font-size:12px" placeholder="e.g. Obturation / Crown Delivery" value="'+esc(nextAppt.stage||'')+'" onchange="cw_visitState.nextAppt.stage=this.value;cw_saveDraft()"/></div>';
+  h += '<div class="form-group"><label class="form-label" style="font-size:11px">Duration (mins)</label><input class="form-input" type="number" min="10" max="180" style="font-size:12px" value="'+(nextAppt.duration||30)+'" onchange="cw_visitState.nextAppt.duration=parseInt(this.value,10)||30;cw_saveDraft()"/></div>';
+  h += '</div>';
+  h += '</div>';
+
+  // Clinical Sub-Timers Panel
+  h += '<div id="clinical-timers-panel" style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;padding:12px;margin-bottom:14px"></div>';
+
+  // Live Price Summary
+  h += '<div id="cw-price-summary-box" style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:12px 16px;margin-bottom:16px">';
+  h += cw_renderPriceSummary();
+  h += '</div>';
+
+  // Action Buttons: Save as Planned, Mark Performed & Save, Cancel
+  h += '<div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap">';
+  h += '<button type="button" class="btn btn-ghost" onclick="cw_closeVisitForm()">Cancel</button>';
+  h += '<button type="button" class="btn" style="background:#1d4ed8;color:#fff;border:none;font-weight:700;padding:8px 18px" onclick="cw_saveVisit(\'planned\')">📋 Save as Planned</button>';
+  h += '<button type="button" class="btn" style="background:#059669;color:#fff;border:none;font-weight:800;padding:8px 22px;box-shadow:0 2px 6px rgba(5,150,105,0.3)" onclick="cw_saveVisit(\'performed\')">✅ Mark Performed &amp; Save</button>';
+  h += '</div>';
+
+  h += '</div>';
+
+  setTimeout(function(){
+    clinTimer_render('clinical-timers-panel');
+  }, 20);
+
+  return h;
+}
+
+/* ── DUPLICATE-PROOF BILLING GENERATOR ── */
+function cw_generateBillingForVisit(patient, visit, isCombined) {
+  if (!patient) return [];
+  if (!patient.billing) patient.billing = [];
+
+  var performedProcs = (visit.procedures || []).filter(function(p){ return p.status === 'performed'; });
+  if (!performedProcs.length) return [];
+
+  var generatedBills = [];
+
+  if (isCombined && performedProcs.length > 1) {
+    // Single consolidated invoice for combined charges
+    var combinedProcIds = performedProcs.map(function(p){ return p.id; });
+    var totalCombinedFee = performedProcs.reduce(function(s,p){ return s + Number(p.agreedFee||0); }, 0);
+    var combinedDesc = performedProcs.map(function(p){
+      return (p.procedureName || 'Procedure') + (p.toothNo ? ' #' + p.toothNo : '');
+    }).join(' + ');
+
+    // Idempotency check: see if a combined bill already exists for this exact set of procedure IDs
+    var existCombined = patient.billing.find(function(b){
+      return b.procedureEntryIds && combinedProcIds.every(function(id){ return b.procedureEntryIds.includes(id); });
+    });
+
+    if (existCombined) {
+      // Already billed — do not duplicate
+      performedProcs.forEach(function(p){
+        p.billingStatus = 'billed';
+        p.billingEntryId = existCombined.id;
+        p.billedAt = existCombined.date || todayISO();
+      });
+      generatedBills.push(existCombined);
+    } else {
+      var invNum = parseInt(localStorage.getItem('hos_invoice_num')||'1000', 10) + 1;
+      localStorage.setItem('hos_invoice_num', String(invNum));
+      var invId = 'INV-' + new Date().getFullYear() + '-' + String(invNum).padStart(4,'0');
+
+      var newBill = {
+        id: 'BIL_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+        invoiceNo: invId,
+        item: combinedDesc,
+        date: visit.date || todayISO(),
+        paymentMode: 'Cash',
+        totalAmount: totalCombinedFee,
+        paidAmount: 0,
+        amount: totalCombinedFee,
+        paid: false,
+        procedureEntryIds: combinedProcIds,
+        visitId: visit.id,
+        payments: []
+      };
+
+      patient.billing.unshift(newBill);
+
+      performedProcs.forEach(function(p){
+        p.billingStatus = 'billed';
+        p.billingEntryId = newBill.id;
+        p.billedAt = newBill.date;
+      });
+
+      generatedBills.push(newBill);
+    }
+  } else {
+    // Individual charge per distinct tooth/procedure combination
+    performedProcs.forEach(function(p){
+      // Idempotency check: Check if a charge with this exact procedure ID already exists
+      var existBill = patient.billing.find(function(b){
+        return b.procedureEntryId === p.id || (b.procedureEntryIds && b.procedureEntryIds.includes(p.id));
+      });
+
+      if (existBill) {
+        // Reuse existing bill
+        p.billingStatus = 'billed';
+        p.billingEntryId = existBill.id;
+        p.billedAt = existBill.date || todayISO();
+        generatedBills.push(existBill);
+      } else {
+        var invNum = parseInt(localStorage.getItem('hos_invoice_num')||'1000', 10) + 1;
+        localStorage.setItem('hos_invoice_num', String(invNum));
+        var invId = 'INV-' + new Date().getFullYear() + '-' + String(invNum).padStart(4,'0');
+
+        var itemTitle = (p.procedureName || 'Dental Procedure') + (p.toothNo ? ' #' + p.toothNo : '');
+        var fee = Number(p.agreedFee || p.catalogueFee || 0);
+
+        var newBill = {
+          id: 'BIL_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+          invoiceNo: invId,
+          item: itemTitle,
+          date: visit.date || todayISO(),
+          paymentMode: 'Cash',
+          totalAmount: fee,
+          paidAmount: 0,
+          amount: fee,
+          paid: false,
+          procedureEntryId: p.id,
+          visitId: visit.id,
+          toothNo: p.toothNo || '',
+          payments: []
+        };
+
+        patient.billing.unshift(newBill);
+
+        p.billingStatus = 'billed';
+        p.billingEntryId = newBill.id;
+        p.billedAt = newBill.date;
+
+        generatedBills.push(newBill);
+      }
+    });
+  }
+
+  return generatedBills;
+}
+
+/* ── TOOTH CHART & TREATMENT PLAN SYNCHRONIZATION ── */
+function cw_syncToothChart(patient, visit) {
+  if (!patient) return;
+  if (!patient.toothChart) patient.toothChart = {};
+
+  (visit.procedures || []).forEach(function(proc){
+    var toothNo = proc.toothNo ? parseInt(proc.toothNo, 10) : null;
+    if (!toothNo) return;
+
+    var cur = patient.toothChart[toothNo] || {};
+    var surfaces = cur.surfaces || {};
+
+    if (proc.status === 'performed') {
+      if (proc.category === 'Restorative') {
+        cur.status = 'done';
+        cur.treatment = proc.procedureName || 'Composite Filling';
+        if (proc.details && proc.details.surfaces) {
+          Object.keys(proc.details.surfaces).forEach(function(k){
+            if (proc.details.surfaces[k]) surfaces[k] = 'composite';
+          });
+        }
+      } else if (proc.category === 'Endodontic') {
+        cur.status = 'rct';
+        cur.treatment = 'RCT ' + (proc.stage || 'Completed');
+      } else if (proc.category === 'Surgical') {
+        cur.status = 'extracted';
+        cur.treatment = 'Extracted';
+      } else if (proc.category === 'Prosthetic') {
+        cur.status = 'crown';
+        cur.treatment = proc.procedureName || 'Crown Delivered';
+      } else {
+        cur.status = 'done';
+        cur.treatment = proc.procedureName || 'Treatment Done';
+      }
+      cur.diagnosis = visit.diagnosis || cur.diagnosis || '';
+      cur.notes = visit.notes || cur.notes || '';
+      cur.surfaces = surfaces;
+      cur.updatedAt = visit.date || todayISO();
+      patient.toothChart[toothNo] = cur;
+    } else if (proc.status === 'planned') {
+      if (!cur.status || cur.status === '') {
+        cur.status = 'planned';
+        cur.diagnosis = visit.diagnosis || '';
+        cur.treatment = proc.procedureName || 'Planned Treatment';
+        cur.updatedAt = visit.date || todayISO();
+        patient.toothChart[toothNo] = cur;
+      }
+    }
+  });
+}
+
+function cw_syncTreatmentPlan(patient, visit) {
+  if (!patient) return;
+  if (!patient.treatmentPlan) patient.treatmentPlan = [];
+
+  (visit.procedures || []).forEach(function(proc){
+    if (proc.status === 'planned') {
+      // Check if already in treatment plan
+      var existPlan = patient.treatmentPlan.find(function(i){
+        return (proc.planItemId && i.id === proc.planItemId) ||
+               (i.toothNo == proc.toothNo && (i.procedure||'').toLowerCase() === (proc.procedureName||'').toLowerCase() && i.status === 'planned');
+      });
+
+      if (!existPlan) {
+        var planItem = {
+          id: 'txp_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+          procedure: proc.procedureName || 'Planned Procedure',
+          toothNo: proc.toothNo || '',
+          estimatedCost: Number(proc.agreedFee || proc.catalogueFee || 0),
+          priority: 'medium',
+          stage: proc.stage || 'Proposed',
+          status: 'planned',
+          procedureEntryId: proc.id,
+          visitId: visit.id,
+          notes: visit.notes || ''
+        };
+        patient.treatmentPlan.push(planItem);
+        proc.planItemId = planItem.id;
+      }
+    } else if (proc.status === 'performed') {
+      // Mark matching plan item completed
+      patient.treatmentPlan.forEach(function(i){
+        if ((proc.planItemId && i.id === proc.planItemId) ||
+            (i.toothNo == proc.toothNo && (i.procedure||'').toLowerCase() === (proc.procedureName||'').toLowerCase() && i.status === 'planned')) {
+          i.status = 'completed';
+          i.procedureEntryId = proc.id;
+          i.completedAt = visit.date || todayISO();
+        }
+      });
+    }
+  });
+}
+
+/* ── AUDIT TRAIL LOGGER ── */
+function cw_logAudit(patientId, action, details) {
+  var ptIdx = DATA.patients.findIndex(function(p){ return p.id === patientId; });
+  if (ptIdx < 0) return;
+  if (!DATA.patients[ptIdx].auditTrail) DATA.patients[ptIdx].auditTrail = [];
+
+  var entry = {
+    id: 'AUD_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+    timestamp: new Date().toISOString(),
+    doctor: DOCTOR || 'Treating Dentist',
+    action: action,
+    details: details || {}
+  };
+
+  DATA.patients[ptIdx].auditTrail.unshift(entry);
+}
+
+/* ── SAVE VISIT WORKFLOW ── */
+function cw_saveVisit(actionType) {
+  if (cw_saveLock) return;
+  if (!cw_visitState || !activePt) return;
+
+  var diag = (cw_visitState.diagnosis || '').trim();
+  if (!diag) {
+    alert('Please enter a clinical diagnosis or chief complaint before saving.');
+    var diagInput = document.getElementById('cw-visit-diag');
+    if (diagInput) diagInput.focus();
+    return;
+  }
+
+  // If actionType is explicitly 'planned', mark all procedures as planned
+  if (actionType === 'planned') {
+    cw_visitState.procedures.forEach(function(p){ p.status = 'planned'; });
+  }
+
+  cw_saveLock = true;
+
+  try {
+    var ptIdx = DATA.patients.findIndex(function(p){ return p.id === activePt.id; });
+    if (ptIdx < 0) {
+      alert('Active patient not found.');
+      cw_saveLock = false;
+      return;
+    }
+
+    var trackRes = typeof procTrack_getResult === 'function' ? procTrack_getResult() : null;
+    var finalDurMins = cw_visitState.durationMins || (trackRes && trackRes.durationMins ? trackRes.durationMins : 20);
+
+    // Build unified treatment string for legacy display
+    var treatSummary = cw_visitState.procedures.map(function(p){
+      var tStr = p.procedureName || 'Procedure';
+      if (p.toothNo) tStr += ' #' + p.toothNo;
+      tStr += ' (' + (p.status === 'performed' ? 'Performed' : 'Planned') + ')';
+      return tStr;
+    }).join(' • ');
+
+    var teethInvolved = cw_visitState.procedures.map(function(p){ return p.toothNo; }).filter(Boolean);
+
+    var visitEntry = {
+      id: cw_visitState.id || Date.now().toString(),
+      visitId: cw_visitState.id,
+      patientId: activePt.id,
+      date: cw_visitState.date || todayISO(),
+      chiefComplaint: cw_visitState.chiefComplaint || '',
+      clinicalFindings: cw_visitState.clinicalFindings || '',
+      diagnosis: diag,
+      treatment: treatSummary,
+      medicalAlerts: cw_visitState.medicalAlerts || '',
+      teethInvolved: teethInvolved,
+      toothNo: teethInvolved.length > 0 ? teethInvolved[0] : '',
+      pain: cw_visitState.painScore || 0,
+      relief: cw_visitState.reliefScore || 0,
+      ohi: cw_visitState.ohi || '',
+      occlusion: cw_visitState.occlusion || '',
+      notes: cw_visitState.notes || '',
+      isRedo: cw_visitState.isRedo || false,
+      redoReason: cw_visitState.redoReason || '',
+      durationMins: finalDurMins,
+      combineCharges: cw_visitState.combineCharges || false,
+      procedures: JSON.parse(JSON.stringify(cw_visitState.procedures)),
+      nextAppt: cw_visitState.nextAppt ? JSON.parse(JSON.stringify(cw_visitState.nextAppt)) : null,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (!DATA.patients[ptIdx].records) DATA.patients[ptIdx].records = [];
+
+    // 1. Process Duplicate-Proof Billing for Performed Procedures
+    var performedProcs = visitEntry.procedures.filter(function(p){ return p.status === 'performed'; });
+    if (performedProcs.length > 0) {
+      cw_generateBillingForVisit(DATA.patients[ptIdx], visitEntry, cw_visitState.combineCharges);
+    }
+
+    // 2. Sync Tooth Chart
+    cw_syncToothChart(DATA.patients[ptIdx], visitEntry);
+
+    // 3. Sync Treatment Plan
+    cw_syncTreatmentPlan(DATA.patients[ptIdx], visitEntry);
+
+    // 4. Save linked appointment if date specified
+    if (visitEntry.nextAppt && visitEntry.nextAppt.date) {
+      if (!DATA.appointments) DATA.appointments = [];
+      var existAppt = DATA.appointments.find(function(a){
+        return a.patientId === activePt.id && a.date === visitEntry.nextAppt.date && a.visitId === visitEntry.id;
+      });
+      if (!existAppt) {
+        DATA.appointments.push({
+          id: genApptId(),
+          patientId: activePt.id,
+          patientName: activePt.name,
+          phone: activePt.phone,
+          date: visitEntry.nextAppt.date,
+          time: visitEntry.nextAppt.time || '11:00',
+          duration: visitEntry.nextAppt.duration || 30,
+          treatment: visitEntry.nextAppt.stage || 'Clinical Follow-up',
+          visitId: visitEntry.id,
+          status: 'confirmed'
+        });
+      }
+    }
+
+    // 5. Update or insert visit in patient.records
+    var recIdx = DATA.patients[ptIdx].records.findIndex(function(r){ return r.id === visitEntry.id || r.visitId === visitEntry.id; });
+    if (recIdx >= 0) {
+      DATA.patients[ptIdx].records[recIdx] = visitEntry;
+    } else {
+      DATA.patients[ptIdx].records.unshift(visitEntry);
+    }
+
+    // 6. Audit Logging
+    cw_logAudit(activePt.id, actionType === 'planned' ? 'VISIT_SAVED_AS_PLANNED' : 'VISIT_PERFORMED_AND_SAVED', {
+      visitId: visitEntry.id,
+      diagnosis: visitEntry.diagnosis,
+      proceduresCount: visitEntry.procedures.length,
+      performedCount: performedProcs.length,
+      billedAmount: performedProcs.reduce(function(s,p){ return s + Number(p.agreedFee||0); }, 0)
+    });
+
+    // 7. Commit changes to storage
+    activePt = DATA.patients[ptIdx];
+    cw_clearDraft(activePt.id);
+    cw_visitState = null;
+
+    saveData();
+
+    if (typeof procTrack_reset === 'function') procTrack_reset();
+
+    showSavedToast('💾 Clinical Visit Saved');
+
+    renderRecordsTab();
+    renderPatientHeader();
+    if (typeof renderToothChart === 'function') {
+      var tcEl = document.getElementById('tab-content-tooth-chart');
+      if (tcEl) tcEl.innerHTML = renderToothChart(activePt.id);
+    }
+  } catch(err) {
+    console.error('Error saving clinical visit:', err);
+    alert('Failed to save clinical visit: ' + err.message);
+  } finally {
+    cw_saveLock = false;
+  }
+}
+
+/* ── EDIT EXISTING VISIT ── */
+function cw_editVisit(visitId) {
+  if (!activePt) return;
+  var rec = (activePt.records || []).find(function(r){ return r.id === visitId || r.visitId === visitId; });
+  if (!rec) return;
+
+  cw_initVisit(rec, rec.toothNo || '');
+  var formWrap = document.getElementById('rec-form');
+  if (formWrap) {
+    formWrap.style.display = 'block';
+    formWrap.innerHTML = cw_renderVisitForm();
+    formWrap.scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+}
+
+/* ── DELETE VISIT ── */
+function cw_deleteVisit(visitId) {
+  if (!confirm('Are you sure you want to delete this clinical visit record? Financial history will be preserved.')) return;
+  var ptIdx = DATA.patients.findIndex(function(p){ return p.id === activePt.id; });
+  if (ptIdx < 0) return;
+
+  DATA.patients[ptIdx].records = (DATA.patients[ptIdx].records || []).filter(function(r){
+    return r.id !== visitId && r.visitId !== visitId;
+  });
+
+  cw_logAudit(activePt.id, 'VISIT_DELETED', { visitId: visitId });
+
+  activePt = DATA.patients[ptIdx];
+  saveData();
+  renderRecordsTab();
+  showToast && showToast('Visit record removed');
+}
+
+/* ── RETRY BILLING FOR SINGLE PROCEDURE ── */
+function cw_retryBilling(procId) {
+  if (!activePt) return;
+  var ptIdx = DATA.patients.findIndex(function(p){ return p.id === activePt.id; });
+  if (ptIdx < 0) return;
+
+  var foundVisit = null;
+  var foundProc = null;
+
+  (DATA.patients[ptIdx].records || []).forEach(function(rec){
+    (rec.procedures || []).forEach(function(p){
+      if (p.id === procId) {
+        foundVisit = rec;
+        foundProc = p;
+      }
+    });
+  });
+
+  if (!foundProc || !foundVisit) {
+    alert('Procedure entry not found.');
+    return;
+  }
+
+  // Run billing generation
+  cw_generateBillingForVisit(DATA.patients[ptIdx], foundVisit, false);
+  cw_logAudit(activePt.id, 'BILLING_RETRIED', { procId: procId, visitId: foundVisit.id });
+
+  activePt = DATA.patients[ptIdx];
+  saveData();
+  renderRecordsTab();
+  renderBillingTab();
+  showToast && showToast('✅ Procedure billed successfully');
+}
+
+/* ── RECORDS TAB (UPGRADED INTEGRATED TIMELINE) ── */
+function renderRecordsTab() {
+  var p = activePt;
+  if (!p) return;
+  var recs = p.records || [];
+  var tl = p.timeLogs || [];
+
+  var billingEvents = (p.billing || []).map(function(b){
+    return {
+      _isBilling: true,
+      id: b.id,
+      date: b.date || '',
+      diagnosis: (b.paid ? '💳 Paid' : '⏳ Pending') + ': ' + (b.item || 'Treatment'),
+      treatment: '₹' + Number(b.amount||0).toLocaleString('en-IN') + (b.paid ? ' ✓ Received' : ''),
+      notes: b.note || '',
+      duration: 0,
+      paid: b.paid
+    };
+  });
+
+  var allEvents = recs.concat(billingEvents).sort(function(a,b){
+    return (b.date || '').localeCompare(a.date || '');
+  });
+
+  var fmtDur = function(s){
+    if (!s || s === 0) return null;
+    return s >= 3600 ? Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm' : s >= 60 ? Math.floor(s/60) + 'm ' + (s%60) + 's' : s + 's';
+  };
+
+  var tot = recs.reduce(function(s,r){ return s + (r.duration||0); }, 0) + tl.reduce(function(s,t){ return s + (t.duration||0); }, 0);
+  var d = document.getElementById('tab-content-records');
+  if (!d) return;
+
+  var h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">';
+  h += '<div>';
+  h += '<div class="sec-title" style="margin:0">🩺 Clinical Examination &amp; Treatment Records</div>';
+  h += '<div style="font-size:11px;color:#64748b;margin-top:2px">Comprehensive diagnosis, multi-procedure visits, tooth chart &amp; duplicate-proof billing</div>';
+  h += '</div>';
+  h += '<div style="display:flex;gap:8px;align-items:center">';
+  if (tot > 0) h += '<span style="font-size:11px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:4px 10px;border-radius:8px">&#9201; ' + fmtDur(tot) + ' total</span>';
+  h += '<button class="btn btn-primary btn-sm" onclick="cw_openNewVisit()">➕ Add Visit</button>';
+  h += '</div></div>';
+
+  // Form container for integrated visit
+  h += '<div id="rec-form" style="display:none"></div>';
+
+  // Chronological timeline
+  h += '<div id="recs-timeline">';
+  if (allEvents.length === 0) {
+    h += '<div class="empty" style="border:1px solid #e2e8f0;border-radius:14px;padding:32px 16px"><span class="empty-icon">🦷</span><div class="empty-title">No clinical records yet</div><div class="empty-sub">Tap "+ Add Visit" to record findings, procedures, and generate duplicate-proof billing.</div></div>';
+  } else {
+    allEvents.forEach(function(r, i){
+      var isBill = r._isBilling;
+      var hasProcs = r.procedures && Array.isArray(r.procedures) && r.procedures.length > 0;
+
+      h += '<div class="timeline-item">';
+      h += '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">';
+      h += '<div class="tl-dot" style="background:' + (isBill ? (r.paid ? '#059669' : '#d97706') : '#1d4ed8') + ';border-color:' + (isBill ? (r.paid ? '#6ee7b7' : '#fcd34d') : '#bfdbfe') + ';"></div>';
+      if (i < allEvents.length - 1) h += '<div class="tl-line"></div>';
+      h += '</div>';
+
+      h += '<div class="tl-card" style="border:1.5px solid ' + (isBill ? '#e2e8f0' : '#cbd5e1') + ';border-radius:14px;padding:14px;margin-bottom:12px;background:#fff">';
+
+      // Card Header
+      h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
+      h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+      h += '<span class="badge ' + (isBill ? 'badge-green' : 'badge-blue') + '" style="font-size:11px;font-weight:800">' + (isBill ? '💰 Payment Event' : '🩺 Clinical Visit') + ' • ' + fmtDate(r.date) + '</span>';
+      if (r.durationMins) {
+        h += '<span style="font-size:10px;font-weight:700;color:#059669;background:#ecfdf5;padding:2px 7px;border-radius:6px">⏱ ' + r.durationMins + 'm</span>';
+      }
+      if (r.ohi) {
+        h += '<span style="font-size:10px;font-weight:700;color:#64748b;background:#f1f5f9;padding:2px 7px;border-radius:6px">OHI: ' + esc(r.ohi) + '</span>';
+      }
+      if (r.pain > 0) {
+        h += '<span style="font-size:10px;font-weight:700;color:#dc2626;background:#fef2f2;padding:2px 7px;border-radius:6px">Pain: ' + r.pain + '/10</span>';
+      }
+      h += '</div>';
+
+      // Action controls
+      h += '<div style="display:flex;align-items:center;gap:6px">';
+      if (!isBill) {
+        h += '<button class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;font-size:11px;padding:3px 8px" onclick="cw_editVisit(\'' + r.id + '\')">✏️ Edit</button>';
+        h += '<button class="btn btn-red btn-icon btn-sm" style="font-size:11px;padding:3px 8px" onclick="cw_deleteVisit(\'' + r.id + '\')">🗑️</button>';
+      }
+      h += '</div>';
+      h += '</div>';
+
+      // Diagnosis / Main Complaint
+      if (r.diagnosis) {
+        h += '<div style="margin-bottom:6px"><span style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase">Diagnosis / Findings</span>';
+        h += '<p style="font-size:13.5px;font-weight:700;color:#1e293b;margin:2px 0 0">' + esc(r.diagnosis) + '</p></div>';
+      }
+
+      // Render Structured Procedures if present
+      if (hasProcs) {
+        h += '<div style="margin-top:8px;border-top:1px solid #f1f5f9;padding-top:8px">';
+        h += '<div style="font-size:10.5px;font-weight:800;color:#64748b;text-transform:uppercase;margin-bottom:6px">Procedures Performed / Planned (' + r.procedures.length + ')</div>';
+
+        r.procedures.forEach(function(proc){
+          var isDone = proc.status === 'performed';
+          var isBilled = proc.billingStatus === 'billed';
+          var fee = Number(proc.agreedFee || proc.catalogueFee || 0);
+
+          h += '<div style="background:#f8fafc;border:1px solid ' + (isDone ? '#86efac' : '#bfdbfe') + ';border-radius:10px;padding:10px;margin-bottom:6px">';
+          h += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">';
+          h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+          if (proc.toothNo) {
+            h += '<span class="badge badge-blue" style="font-size:10px;font-weight:800">Tooth #' + proc.toothNo + '</span>';
+          }
+          h += '<strong style="font-size:13px;color:#1e293b">' + esc(proc.procedureName || 'Procedure') + '</strong>';
+          h += '<span class="badge ' + (isDone ? 'badge-green' : 'badge-amber') + '" style="font-size:9.5px">' + (isDone ? '✅ Performed' : '📋 Planned') + '</span>';
+          h += '</div>';
+
+          h += '<div style="display:flex;align-items:center;gap:6px">';
+          if (isDone) {
+            if (isBilled) {
+              h += '<span style="font-size:11px;font-weight:800;color:#059669;background:#ecfdf5;padding:2px 8px;border-radius:6px">💳 Billed ' + fmtMoney(fee) + '</span>';
+            } else {
+              h += '<button class="btn btn-sm" style="background:#1e3a5f;color:#7dd3fc;font-size:10px;padding:2px 8px" onclick="cw_retryBilling(\'' + proc.id + '\')">💳 Bill ' + fmtMoney(fee) + '</button>';
+            }
+          } else {
+            h += '<span style="font-size:11px;font-weight:700;color:#1d4ed8;background:#eff6ff;padding:2px 8px;border-radius:6px">Est. ' + fmtMoney(fee) + '</span>';
+          }
+          h += '</div>';
+          h += '</div>';
+
+          // Canal working lengths summary if RCT
+          if (proc.category === 'Endodontic' && proc.details && proc.details.canals && proc.details.canals.length > 0) {
+            h += '<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">';
+            proc.details.canals.forEach(function(c){
+              h += '<span style="font-size:10px;background:#fff;border:1px solid #bae6fd;color:#0369a1;padding:2px 6px;border-radius:6px;font-weight:700">' + esc(c.name) + ': ' + (c.wl ? c.wl + 'mm' : '—') + (c.maf ? ' (#' + c.maf + ')' : '') + '</span>';
+            });
+            h += '</div>';
+          }
+
+          // Surfaces summary if composite
+          if (proc.category === 'Restorative' && proc.details && proc.details.surfaces) {
+            var activeSfs = Object.keys(proc.details.surfaces).filter(function(k){ return proc.details.surfaces[k]; });
+            if (activeSfs.length > 0) {
+              h += '<div style="margin-top:4px;font-size:11px;color:#0369a1">Surfaces: <strong>' + activeSfs.join(', ') + '</strong>' + (proc.details.shade ? ' • Shade: ' + esc(proc.details.shade) : '') + '</div>';
+            }
+          }
+
+          h += '</div>';
+        });
+        h += '</div>';
+      } else if (r.treatment) {
+        // Legacy treatment line
+        h += '<div style="margin-bottom:6px"><span style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase">Treatment</span><p style="font-size:13px;color:#374151;margin:2px 0 0">' + esc(r.treatment) + '</p></div>';
+      }
+
+      if (r.notes) {
+        h += '<div style="background:#f8fafc;border-left:3px solid #1d4ed8;border-radius:0 8px 8px 0;padding:8px 12px;margin-top:6px"><p style="font-size:12px;color:#475569;line-height:1.6;margin:0">' + esc(r.notes) + '</p></div>';
+      }
+
+      if (r.occlusion) {
+        h += '<div style="font-size:11px;color:#0369a1;margin-top:5px;padding:4px 8px;background:#f0f9ff;border-radius:6px">🦷 Occlusion: ' + esc(r.occlusion) + '</div>';
+      }
+
+      h += '</div></div>';
+    });
+  }
+  h += '</div>';
+
+  d.innerHTML = h;
+}
+
+function showAddRecord() {
+  cw_openNewVisit();
+}
+
+function saveRecord() {
+  cw_saveVisit('performed');
+}
+
+function deleteRecord(rid) {
+  cw_deleteVisit(rid);
+}
+
 
 /* ── IMAGES TAB ── */
 function renderImagesTab(){
@@ -22417,17 +23845,62 @@ function tc_openSurfaceModal(patientId, toothNum) {
       '<select id="sf-'+sf.id+'" class="form-input" style="flex:1;font-size:12px">'+opts+'</select></div>';
   }).join('');
 
-  /* Clinical records for this tooth */
+  /* Comprehensive Clinical History for this Tooth */
   var toothRecords = (p.records||[]).filter(function(r){
-    return r.toothNo==toothNum || (r.treatment||'').includes('#'+toothNum) || (r.diagnosis||'').includes('#'+toothNum);
+    if (r.toothNo == toothNum) return true;
+    if (r.teethInvolved && Array.isArray(r.teethInvolved) && r.teethInvolved.includes(toothNum)) return true;
+    if (r.procedures && Array.isArray(r.procedures) && r.procedures.some(function(pr){ return pr.toothNo == toothNum; })) return true;
+    return (r.treatment||'').includes('#'+toothNum) || (r.diagnosis||'').includes('#'+toothNum);
   });
-  var histHtml = toothRecords.length
-    ? '<div style="margin-top:10px;border-top:1px solid #e2e8f0;padding-top:8px"><div style="font-size:10px;font-weight:700;color:#94a3b8;margin-bottom:6px;text-transform:uppercase">Clinical Records — Tooth #'+toothNum+'</div>'+
-      toothRecords.map(function(r){
-        return '<div style="font-size:11px;padding:5px 0;border-bottom:1px solid #f1f5f9;color:#374151">'+
-          '<span style="color:#64748b">'+fmtDate(r.date)+'</span> — '+esc(r.diagnosis||r.treatment||'Record')+'</div>';
-      }).join('')+'</div>'
-    : '';
+
+  var toothPlans = (p.treatmentPlan||[]).filter(function(i){
+    return i.toothNo == toothNum;
+  });
+
+  var toothLabJobs = (DATA.labJobs||[]).filter(function(j){
+    return (j.patientId === patientId || (j.patientName && j.patientName.toLowerCase() === p.name.toLowerCase())) &&
+           (j.toothNo == toothNum || (j.workType||'').includes(String(toothNum)));
+  });
+
+  var toothBills = (p.billing||[]).filter(function(b){
+    return b.toothNo == toothNum || (b.item||'').includes('#'+toothNum);
+  });
+
+  var histHtml = '<div style="margin-top:14px;border-top:1.5px solid #e2e8f0;padding-top:10px">';
+  histHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  histHtml += '<div style="font-size:11px;font-weight:800;color:#1e3a5f;text-transform:uppercase">📋 Comprehensive History for Tooth #'+toothNum+'</div>';
+  histHtml += '<button type="button" class="btn btn-primary btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="closeV6Modal();switchTab(\'records\');setTimeout(function(){cw_openNewVisit('+toothNum+');},100)">➕ Start Visit for Tooth #'+toothNum+'</button>';
+  histHtml += '</div>';
+
+  if (toothRecords.length === 0 && toothPlans.length === 0 && toothLabJobs.length === 0 && toothBills.length === 0) {
+    histHtml += '<div style="font-size:11px;color:#94a3b8;font-style:italic">No recorded visits, plans or charges for this tooth yet.</div>';
+  } else {
+    if (toothRecords.length > 0) {
+      histHtml += '<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin:6px 0 4px">🩺 Clinical Visits ('+toothRecords.length+')</div>';
+      toothRecords.forEach(function(r){
+        histHtml += '<div style="font-size:11px;padding:4px 6px;background:#f8fafc;border-radius:6px;border:1px solid #f1f5f9;margin-bottom:4px;color:#334155"><span style="color:#64748b;font-weight:700">'+fmtDate(r.date)+'</span>: <strong>'+esc(r.diagnosis||'')+'</strong> — '+esc(r.treatment||'Visit record')+'</div>';
+      });
+    }
+    if (toothPlans.length > 0) {
+      histHtml += '<div style="font-size:10px;font-weight:700;color:#1d4ed8;text-transform:uppercase;margin:6px 0 4px">📋 Treatment Plan ('+toothPlans.length+')</div>';
+      toothPlans.forEach(function(pl){
+        histHtml += '<div style="font-size:11px;padding:4px 6px;background:#eff6ff;border-radius:6px;border:1px solid #bfdbfe;margin-bottom:4px;color:#1e40af">'+esc(pl.procedure)+' • <span class="badge '+(pl.status==='completed'?'badge-green':'badge-blue')+'" style="font-size:9px">'+esc(pl.status)+'</span> • '+fmtMoney(pl.estimatedCost||0)+'</div>';
+      });
+    }
+    if (toothLabJobs.length > 0) {
+      histHtml += '<div style="font-size:10px;font-weight:700;color:#7c3aed;text-transform:uppercase;margin:6px 0 4px">🔬 Lab Cases ('+toothLabJobs.length+')</div>';
+      toothLabJobs.forEach(function(j){
+        histHtml += '<div style="font-size:11px;padding:4px 6px;background:#f5f3ff;border-radius:6px;border:1px solid #ddd6fe;margin-bottom:4px;color:#6d28d9">'+esc(j.workType)+' ('+esc(j.labName)+') • Status: '+esc(j.status)+'</div>';
+      });
+    }
+    if (toothBills.length > 0) {
+      histHtml += '<div style="font-size:10px;font-weight:700;color:#059669;text-transform:uppercase;margin:6px 0 4px">💰 Linked Charges ('+toothBills.length+')</div>';
+      toothBills.forEach(function(b){
+        histHtml += '<div style="font-size:11px;padding:4px 6px;background:#ecfdf5;border-radius:6px;border:1px solid #a7f3d0;margin-bottom:4px;color:#065f46">'+esc(b.item)+' • '+fmtMoney(b.amount||0)+' • <span style="font-weight:700">'+(b.paid?'Paid':'Due')+'</span></div>';
+      });
+    }
+  }
+  histHtml += '</div>';
 
   var html = '<div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:14px">' +
     '<div style="flex-shrink:0">'+tc_renderSurfaceDiagram(toothNum, surfaces)+'</div>' +
@@ -27294,13 +28767,14 @@ initApp();
 
 /* ─── RECORD EDITING ─────────────────────────────────── */
 function rec_editLoad(recId) {
+  if (typeof cw_editVisit === 'function') {
+    cw_editVisit(recId);
+    return;
+  }
   var rec = (activePt.records||[]).find(function(r){ return r.id===recId; });
   if (!rec) return;
 
-  /* Scroll to form */
   var form = document.getElementById('rec-form') || document.querySelector('[id^="tab-content-records"]');
-
-  /* Fill form fields */
   var set = function(id, val) {
     var el = document.getElementById(id);
     if (el) el.value = val||'';
@@ -27311,15 +28785,12 @@ function rec_editLoad(recId) {
   set('rec-notes', rec.notes||'');
   set('rec-dur-mins', rec.durationMins||rec.duration>0 ? (rec.durationMins || Math.round(rec.duration/60)) : '');
 
-  /* Mark as edit mode */
   var editIdEl = document.getElementById('rec-edit-id');
   if (editIdEl) { editIdEl.textContent = recId; editIdEl.style.display='none'; }
 
-  /* Update save button label */
   var saveBtn = document.querySelector('[onclick="saveRecord()"]');
   if (saveBtn) { saveBtn.textContent = '💾 Update Record'; saveBtn.style.background='#d97706'; }
 
-  /* Scroll form into view */
   if (form) form.scrollIntoView({ behavior:'smooth', block:'start' });
   setTimeout(function(){ var d=document.getElementById('rec-diag'); if(d) d.focus(); }, 300);
 

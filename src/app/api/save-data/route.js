@@ -126,6 +126,45 @@ export async function POST(request) {
       return NextResponse.json({ success: true, message: 'Import finalized' });
     }
 
+    // Helper to enforce idempotent billing and prevent duplicate charges per procedureEntryId
+    const deduplicatePatientBilling = (p) => {
+      if (!p || !Array.isArray(p.billing)) return p;
+      const seenProcIds = new Set();
+      const deduped = [];
+      for (const bill of p.billing) {
+        if (!bill) continue;
+        const procId = bill.procedureEntryId;
+        if (procId) {
+          if (seenProcIds.has(procId)) {
+            continue; // Skip duplicate original charge for same procedure
+          }
+          seenProcIds.add(procId);
+        }
+        deduped.push(bill);
+      }
+      return { ...p, billing: deduped };
+    };
+
+    // ── ACTION 7: Sync Single Patient Visit (Atomic & Duplicate-Proof) ──
+    if (action === 'sync_patient_visit' && patientId && item) {
+      const patientCollection = db.collection('patients');
+      const cleanItem = deduplicatePatientBilling(item);
+      const docId = cleanItem.id || patientId;
+      const { _id, ...cleanData } = cleanItem;
+      await patientCollection.updateOne(
+        { $or: [{ id: docId }, { _id: docId }] },
+        { $set: { ...cleanData, id: docId, _id: docId } },
+        { upsert: true }
+      );
+      const metaCollection = db.collection('meta');
+      await metaCollection.updateOne(
+        { key: 'last_saved' },
+        { $set: { value: new Date().toISOString() } },
+        { upsert: true }
+      );
+      return NextResponse.json({ success: true, patientId: docId });
+    }
+
     // ── DEFAULT: Standard Full / Partial Save (Safe Upsert, No Full Delete) ──
     if (data) {
       const { patients: ptList = [], ...otherFields } = data;
@@ -135,7 +174,8 @@ export async function POST(request) {
       if (ptList.length > 0) {
         const operations = ptList.map((p) => {
           const docId = p.id || p._id || 'PT' + Date.now().toString().slice(-6) + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-          const { _id, ...cleanData } = p;
+          const cleanP = deduplicatePatientBilling(p);
+          const { _id, ...cleanData } = cleanP;
           return {
             updateOne: {
               filter: { $or: [{ id: docId }, { _id: docId }] },
